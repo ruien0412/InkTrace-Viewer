@@ -84,12 +84,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   -webkit-app-region: no-drag;
 }
 
 .icon-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .icon-btn:disabled {
@@ -160,17 +166,22 @@ body {
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: transform 0.1s, background 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid transparent;
   height: 100px;
   position: relative;
+  will-change: transform;
 }
 
 .char-card:hover {
   background: var(--card-hover);
-  transform: translateY(-2px);
+  transform: translateY(-3px) scale(1.02);
   border-color: rgba(255,255,255,0.1);
   box-shadow: var(--shadow-sm);
+}
+
+.char-card:active {
+  transform: translateY(-1px) scale(0.98);
 }
 
 .char-preview {
@@ -380,6 +391,8 @@ body {
   display: flex;
   flex-direction: column;
   animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+  transform: translateZ(0); /* Enable hardware acceleration */
 }
 
 .detail-toolbar {
@@ -424,7 +437,11 @@ body {
   background: #111;
   position: relative;
   padding: 40px;
+  overflow: hidden;
 }
+
+/* Smooth fade animation for preview content */
+.preview-area > div {\n  animation: fadeInScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);\n  will-change: opacity, transform;\n}\n\n/* SVG optimization */\n.preview-area svg,\n.char-preview svg,\n.variant-thumb svg {\n  shape-rendering: geometricPrecision;\n  image-rendering: -webkit-optimize-contrast;\n  image-rendering: crisp-edges;\n}
 
 /* Background patterns for preview area */
 .preview-area.bg-checkerboard {
@@ -496,16 +513,19 @@ body {
   padding: 10px;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: background, border;
 }
 
 .variant-item:hover {
   background: rgba(255,255,255,0.05);
+  transform: translateX(2px);
 }
 
 .variant-item.active {
   background: rgba(10, 132, 255, 0.2);
   border: 1px solid rgba(10, 132, 255, 0.4);
+  transform: translateX(4px);
 }
 
 .variant-thumb {
@@ -644,3 +664,13 @@ body {
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes slideInRight { from { transform: translateX(50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes slideUpFade { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes fadeInScale { 
+  from { 
+    opacity: 0; 
+    transform: scale(0.95);
+  } 
+  to { 
+    opacity: 1; 
+    transform: scale(1);
+  } 
+}

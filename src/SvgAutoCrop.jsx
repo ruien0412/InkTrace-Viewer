@@ -163,4 +163,9 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
   );
 };
 
-export default SvgAutoCrop;
+export default React.memo(SvgAutoCrop, (prevProps, nextProps) => {
+  // Only re-render if url or viewBox changes
+  return prevProps.url === nextProps.url && 
+         prevProps.viewBox === nextProps.viewBox &&
+         prevProps.svgString === nextProps.svgString;
+});

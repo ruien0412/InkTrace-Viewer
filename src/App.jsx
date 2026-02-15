@@ -173,8 +173,12 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Left/Right: Switch between characters
-      if (e.key === 'ArrowLeft' && hasPrev) onPrev();
-      if (e.key === 'ArrowRight' && hasNext) onNext();
+      if (e.key === 'ArrowLeft' && hasPrev) {
+        onPrev();
+      }
+      if (e.key === 'ArrowRight' && hasNext) {
+        onNext();
+      }
       
       // Up/Down: Switch between variants
       if (e.key === 'ArrowUp') {
@@ -271,9 +275,9 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
           </div>
         </div>
         
-        <div className={`preview-area bg-${bgMode}`}>
+        <div className={`preview-area bg-${bgMode}`} key={group.char}>
           {selectedVariant && (
-            <div style={{ width: '100%', height: '100%', padding: 20 }}>
+            <div key={selectedVariant.path} style={{ width: '100%', height: '100%', padding: 20 }}>
              <SvgAutoCrop 
                url={`file://${selectedVariant.path}`} 
                viewBox={selectedVariant.viewBox}
@@ -443,6 +447,31 @@ function App() {
 
   // Virtualization / Infinite Scroll
   const { visibleItems, hasMore, loadMore } = useInfiniteScroll(filteredData, 50);
+
+  // Preload adjacent characters when selectedGroup changes
+  useEffect(() => {
+    if (!selectedGroup) return;
+    
+    const preloadSvg = (path) => {
+      const link = document.createElement('link');
+      link.rel = 'prefetch';
+      link.href = `file://${path}`;
+      link.as = 'fetch';
+      document.head.appendChild(link);
+    };
+    
+    const index = filteredData.indexOf(selectedGroup);
+    
+    // Preload previous character's main SVG
+    if (index > 0 && filteredData[index - 1]) {
+      preloadSvg(filteredData[index - 1].mainSvg.path);
+    }
+    
+    // Preload next character's main SVG
+    if (index < filteredData.length - 1 && filteredData[index + 1]) {
+      preloadSvg(filteredData[index + 1].mainSvg.path);
+    }
+  }, [selectedGroup, filteredData]);
 
   // Intersection Observer for loading more
   useEffect(() => {
