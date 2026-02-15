@@ -52,6 +52,29 @@ npm run build
 
 會輸出到 `dist/`。
 
+## GitHub Actions 自動 Release
+
+此專案已加入自動發佈流程：
+
+- Workflow 檔案：`.github/workflows/release.yml`
+- 觸發條件：推送 `v*` tag（例如 `v1.0.1`）或手動執行 workflow
+- 流程內容：
+   1. 安裝依賴（`npm ci`）
+   2. 建置前端（`npm run build`）
+   3. 使用 `electron-builder` 矩陣打包：
+       - macOS（`--mac`）
+       - Windows（`--win`）
+   4. 將產物上傳至同一個 GitHub Release（例如 `.dmg`、`.exe`、`.zip`、`.blockmap`）
+
+### 如何發佈版本
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+推送 tag 後，GitHub Actions 會自動建立（或更新）對應版本的 Release。
+
 ## 使用流程
 
 1. 開啟設定面板（Settings）。
