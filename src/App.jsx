@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
+import SvgAutoCrop from './SvgAutoCrop';
 
 // --- Helper Functions ---
 
@@ -227,7 +228,15 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
         
         <div className="preview-area">
           {selectedVariant && (
-             <img src={`file://${selectedVariant.path}`} alt={selectedVariant.name} />
+            <div style={{ width: '100%', height: '100%', padding: 20 }}>
+             <SvgAutoCrop 
+               url={`file://${selectedVariant.path}`} 
+               style={{ width: '100%', height: '100%' }}
+             />
+             <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 12, color: '#888' }}>
+               Path: {selectedVariant.path}
+             </div>
+            </div>
           )}
         </div>
       </div>
@@ -386,7 +395,10 @@ function App() {
                   <span className="variant-badge">+{group.items.length - 1}</span>
                 )}
                 <div className="char-preview">
-                  <img src={`file://${group.mainSvg.path}`} alt={group.char} loading="lazy" />
+                  <SvgAutoCrop 
+                    url={`file://${group.mainSvg.path}`} 
+                    style={{ width: '100%', height: '100%' }}
+                  />
                 </div>
                 <div className="char-name">{group.char}</div>
               </div>

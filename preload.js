@@ -17,5 +17,7 @@ contextBridge.exposeInMainWorld('appApi', {
   gitOperation: (payload) => ipcRenderer.invoke('git:operation', payload),
   scanSvgs: (path) => ipcRenderer.invoke('scan:svgs', path),
   
+  readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
+
   onStatusUpdate: (callback) => safeSubscribe('status:update', callback)
 })

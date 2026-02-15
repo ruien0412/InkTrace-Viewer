@@ -145,6 +145,17 @@ app.whenReady().then(() => {
     }))
   })
 
+  // Read File IPC
+  ipcMain.handle('file:read', async (_, filePath) => {
+    try {
+      const content = await fs.readFile(filePath, 'utf8')
+      return content
+    } catch (err) {
+      console.error('Error reading file:', filePath, err)
+      throw err
+    }
+  })
+
   createWindow()
 
   app.on('activate', () => {
