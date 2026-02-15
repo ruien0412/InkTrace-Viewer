@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
 import SvgAutoCrop from './SvgAutoCrop';
 
@@ -150,6 +150,7 @@ const SettingsModal = ({
 const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
   const [selectedVariant, setSelectedVariant] = useState(group.items[0]);
   const [bgMode, setBgMode] = useState('checkerboard'); // 'checkerboard', 'white', 'black'
+  const variantListRef = useRef(null);
 
   // Reset to main variant (id 0) or first available when switching groups
   useEffect(() => {
@@ -157,16 +158,45 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
     setSelectedVariant(main);
   }, [group]);
 
+  // Auto-scroll to selected variant
+  useEffect(() => {
+    if (variantListRef.current && selectedVariant) {
+      const selectedIndex = group.items.indexOf(selectedVariant);
+      const selectedElement = variantListRef.current.children[selectedIndex];
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [selectedVariant, group.items]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Left/Right: Switch between characters
       if (e.key === 'ArrowLeft' && hasPrev) onPrev();
       if (e.key === 'ArrowRight' && hasNext) onNext();
+      
+      // Up/Down: Switch between variants
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const currentIndex = group.items.indexOf(selectedVariant);
+        if (currentIndex > 0) {
+          setSelectedVariant(group.items[currentIndex - 1]);
+        }
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const currentIndex = group.items.indexOf(selectedVariant);
+        if (currentIndex < group.items.length - 1) {
+          setSelectedVariant(group.items[currentIndex + 1]);
+        }
+      }
+      
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasPrev, hasNext, onPrev, onNext, onClose]);
+  }, [hasPrev, hasNext, onPrev, onNext, onClose, group.items, selectedVariant]);
 
   return (
     <div className="detail-view">
@@ -180,17 +210,22 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
               className="icon-btn" 
               onClick={onPrev} 
               disabled={!hasPrev} 
-              title="Previous Character (Left Arrow)"
+              title="Previous Character (← Left Arrow)"
               style={{opacity: hasPrev ? 1 : 0.3}}
             >
               <IconChevronLeft />
             </button>
-            <h2 style={{fontSize: '18px', margin: 0, minWidth: 60, textAlign: 'center'}}>{group.char}</h2>
+            <div style={{ textAlign: 'center' }}>
+              <h2 style={{fontSize: '18px', margin: 0, minWidth: 60}}>{group.char}</h2>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                ←→ Characters
+              </div>
+            </div>
             <button 
               className="icon-btn" 
               onClick={onNext} 
               disabled={!hasNext} 
-              title="Next Character (Right Arrow)"
+              title="Next Character (→ Right Arrow)"
               style={{opacity: hasNext ? 1 : 0.3}}
             >
               <IconChevronRight />
@@ -205,8 +240,11 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
         <div className="variant-sidebar">
           <div className="variant-sidebar-header">
             Variants ({group.items.length})
+            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '400', marginTop: '4px' }}>
+              ↑↓ Switch variants
+            </div>
           </div>
-          <div className="variant-list">
+          <div className="variant-list" ref={variantListRef}>
             {group.items.map((v, i) => (
               <div 
                 key={i} 
