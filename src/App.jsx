@@ -149,6 +149,7 @@ const SettingsModal = ({
 
 const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
   const [selectedVariant, setSelectedVariant] = useState(group.items[0]);
+  const [bgMode, setBgMode] = useState('checkerboard'); // 'checkerboard', 'white', 'black'
 
   // Reset to main variant (id 0) or first available when switching groups
   useEffect(() => {
@@ -232,7 +233,7 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
           </div>
         </div>
         
-        <div className="preview-area">
+        <div className={`preview-area bg-${bgMode}`}>
           {selectedVariant && (
             <div style={{ width: '100%', height: '100%', padding: 20 }}>
              <SvgAutoCrop 
@@ -240,11 +241,30 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
                viewBox={selectedVariant.viewBox}
                style={{ width: '100%', height: '100%' }}
              />
-             <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 12, color: '#888' }}>
+             <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 12, color: bgMode === 'white' ? '#888' : '#aaa' }}>
                Path: {selectedVariant.path}
              </div>
             </div>
           )}
+          
+          {/* Background Toggle */}
+          <div className="bg-toggle-btn">
+            <div 
+              className={`bg-option checkerboard ${bgMode === 'checkerboard' ? 'active' : ''}`}
+              onClick={() => setBgMode('checkerboard')}
+              title="Checkerboard"
+            />
+            <div 
+              className={`bg-option white ${bgMode === 'white' ? 'active' : ''}`}
+              onClick={() => setBgMode('white')}
+              title="White Background"
+            />
+            <div 
+              className={`bg-option black ${bgMode === 'black' ? 'active' : ''}`}
+              onClick={() => setBgMode('black')}
+              title="Black Background"
+            />
+          </div>
         </div>
       </div>
     </div>
