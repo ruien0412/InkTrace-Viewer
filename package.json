@@ -5,11 +5,23 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "dev": "concurrently -k \"vite\" \"npm:electron:dev\"",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "build": "vite build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "ruien0412",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^40.4.1"
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^40.4.1",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "simple-git": "^3.31.1"
   }
 }

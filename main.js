@@ -1,424 +1,157 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs/promises')
-const { constants: fsConstants } = require('node:fs')
-const { spawn } = require('node:child_process')
-const os = require('node:os')
-const crypto = require('node:crypto')
+const simpleGit = require('simple-git')
 
-const cloneJobs = new Map()
-const MAX_HISTORY = 20
-
+// --- Settings Management (Preserved) ---
 function getSettingsFilePath() {
   return path.join(app.getPath('userData'), 'settings.json')
 }
 
-function normalizeSettings(rawSettings = {}) {
-  const history = Array.isArray(rawSettings.history) ? rawSettings.history : []
-  const sanitizedHistory = history
-    .filter((item) => item && typeof item.repoUrl === 'string' && item.repoUrl.trim())
-    .map((item) => ({
-      repoUrl: String(item.repoUrl || '').trim(),
-      branch: String(item.branch || 'main').trim() || 'main',
-      destinationFolder: String(item.destinationFolder || '').trim(),
-      token: String(item.token || '').trim(),
-      lastUsedAt: Number(item.lastUsedAt) || Date.now()
-    }))
-    .sort((left, right) => right.lastUsedAt - left.lastUsedAt)
-    .slice(0, MAX_HISTORY)
-
-  return {
-    history: sanitizedHistory,
-    lastUsed: {
-      repoUrl: String(rawSettings?.lastUsed?.repoUrl || '').trim(),
-      branch: String(rawSettings?.lastUsed?.branch || 'main').trim() || 'main',
-      destinationFolder: String(rawSettings?.lastUsed?.destinationFolder || '').trim(),
-      token: String(rawSettings?.lastUsed?.token || '').trim()
-    }
-  }
-}
-
 async function readSettings() {
-  const settingsPath = getSettingsFilePath()
   try {
-    const raw = await fs.readFile(settingsPath, 'utf8')
-    return normalizeSettings(JSON.parse(raw))
-  } catch (error) {
-    if (error && error.code !== 'ENOENT') {
-      throw error
-    }
-    return normalizeSettings()
+    const raw = await fs.readFile(getSettingsFilePath(), 'utf8')
+    return JSON.parse(raw)
+  } catch (err) {
+    return { history: [], lastUsed: null }
   }
 }
 
-async function writeSettings(settings) {
-  const normalizedSettings = normalizeSettings(settings)
+async function saveSettings(settings) {
   const settingsPath = getSettingsFilePath()
   await fs.mkdir(path.dirname(settingsPath), { recursive: true })
-  await fs.writeFile(settingsPath, JSON.stringify(normalizedSettings, null, 2), 'utf8')
-  return normalizedSettings
+  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
 }
 
-function mergeHistory(history, input) {
-  const now = Date.now()
-  const nextItem = {
-    repoUrl: String(input?.repoUrl || '').trim(),
-    branch: String(input?.branch || 'main').trim() || 'main',
-    destinationFolder: String(input?.destinationFolder || '').trim(),
-    token: String(input?.token || '').trim(),
-    lastUsedAt: now
-  }
-
-  if (!nextItem.repoUrl) {
-    return history.slice(0, MAX_HISTORY)
-  }
-
-  const deduped = history.filter(
-    (item) => !(item.repoUrl === nextItem.repoUrl && item.branch === nextItem.branch)
-  )
-
-  return [nextItem, ...deduped].slice(0, MAX_HISTORY)
-}
-
-function sendCloneEvent(targetWindow, channel, payload) {
-  if (targetWindow && !targetWindow.isDestroyed()) {
-    targetWindow.webContents.send(channel, payload)
-  }
-}
-
-function parseRepoName(repoUrl) {
-  const cleanedUrl = repoUrl.replace(/\/+$/, '')
-  const lastSegment = cleanedUrl.split('/').pop() || 'repository'
-  return lastSegment.endsWith('.git') ? lastSegment.slice(0, -4) : lastSegment
-}
-
-function sanitizeMessage(message, token) {
-  if (!token) {
-    return message
-  }
-  return message.split(token).join('***')
-}
-
-async function ensureDirectoryReadable(directoryPath) {
-  await fs.access(directoryPath, fsConstants.R_OK | fsConstants.W_OK)
-}
-
-async function checkGitRepository(folderPath) {
-  const gitPath = path.join(folderPath, '.git')
+// --- Recursive SVG Scanner ---
+async function scanDirectory(dir) {
+  let results = []
   try {
-    const stat = await fs.stat(gitPath)
-    return stat.isDirectory() || stat.isFile()
-  } catch {
-    return false
-  }
-}
-
-async function getSvgFiles(rootDirectory) {
-  const svgFiles = []
-
-  async function walk(currentDirectory) {
-    const entries = await fs.readdir(currentDirectory, { withFileTypes: true })
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    
     for (const entry of entries) {
-      const fullPath = path.join(currentDirectory, entry.name)
+      const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-        await walk(fullPath)
-        continue
-      }
-
-      if (entry.isFile() && entry.name.toLowerCase().endsWith('.svg')) {
-        const relativePath = path.relative(rootDirectory, fullPath)
-        svgFiles.push({
-          relativePath,
-          fullPath
+        results = results.concat(await scanDirectory(fullPath))
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.svg')) {
+        results.push({
+          name: entry.name,
+          path: fullPath,
+          relativePath: fullPath // Will be processed in frontend or relative to root
         })
       }
     }
+  } catch (err) {
+    console.error('Error scanning directory:', dir, err)
   }
-
-  await walk(rootDirectory)
-  svgFiles.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
-  return svgFiles
+  return results
 }
 
-async function createAskPassFile(jobId) {
-  const askPassPath = path.join(os.tmpdir(), `inktrace-askpass-${jobId}.sh`)
-  const scriptContent = '#!/bin/sh\necho "$GITHUB_TOKEN"\n'
-  await fs.writeFile(askPassPath, scriptContent, { mode: 0o700 })
-  await fs.chmod(askPassPath, 0o700)
-  return askPassPath
-}
-
-async function deleteFileQuietly(filePath) {
-  if (!filePath) {
-    return
-  }
-
-  try {
-    await fs.unlink(filePath)
-  } catch {
-    // Ignore cleanup errors.
-  }
-}
-
-const createWindow = () => {
+// --- Main Window ---
+function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
-    height: 760,
+    height: 800,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
-      preload: path.join(__dirname, 'preload.js')
+      webSecurity: false // Consider removing for production, but needed for file:// access in dev
     }
   })
 
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  win.webContents.on('will-navigate', (event) => {
-    event.preventDefault()
-  })
-
-  win.loadFile('index.html')
+  const isDev = process.env.NODE_ENV === 'development'
+  
+  if (isDev) {
+    win.loadURL('http://localhost:5173')
+    win.webContents.openDevTools()
+  } else {
+    win.loadFile(path.join(__dirname, 'dist', 'index.html'))
+  }
 }
 
-function registerIpcHandlers() {
-  ipcMain.handle('settings:get', async () => {
-    const settings = await readSettings()
-    return { ok: true, settings }
-  })
-
-  ipcMain.handle('settings:save', async (_, payload) => {
-    const currentSettings = await readSettings()
-    const input = {
-      repoUrl: String(payload?.repoUrl || '').trim(),
-      branch: String(payload?.branch || 'main').trim() || 'main',
-      destinationFolder: String(payload?.destinationFolder || '').trim(),
-      token: String(payload?.token || '').trim()
-    }
-
-    const nextSettings = {
-      history: mergeHistory(currentSettings.history, input),
-      lastUsed: input
-    }
-
-    const saved = await writeSettings(nextSettings)
-    return { ok: true, settings: saved }
-  })
-
+// --- App Lifecycle ---
+app.whenReady().then(() => {
+  // Settings IPC
+  ipcMain.handle('settings:get', readSettings)
+  
+  // Dialog IPC
   ipcMain.handle('dialog:pickFolder', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory']
     })
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return { canceled: true, folderPath: null }
-    }
-
-    return { canceled: false, folderPath: result.filePaths[0] }
+    return result.canceled ? null : result.filePaths[0]
   })
 
-  ipcMain.handle('repo:inspect', async (_, payload) => {
-    const rootDirectory = String(payload?.rootDirectory || '').trim()
-    if (!rootDirectory) {
-      throw new Error('rootDirectory 為必填欄位。')
-    }
-
-    await ensureDirectoryReadable(rootDirectory)
-    const isGitRepo = await checkGitRepository(rootDirectory)
-    return {
-      ok: true,
-      isGitRepo,
-      rootDirectory
-    }
-  })
-
-  ipcMain.handle('git:cloneStart', async (event, payload) => {
-    const targetWindow = BrowserWindow.fromWebContents(event.sender)
-    const repoUrl = String(payload?.repoUrl || '').trim()
-    const branch = String(payload?.branch || '').trim() || 'main'
-    const destinationFolder = String(payload?.destinationFolder || '').trim()
-    const token = String(payload?.token || '').trim()
-
-    if (!repoUrl || !destinationFolder) {
-      throw new Error('repoUrl 與 destinationFolder 為必填欄位。')
-    }
-
-    await ensureDirectoryReadable(destinationFolder)
-
-    const repositoryName = parseRepoName(repoUrl)
-    const targetDirectory = path.join(destinationFolder, repositoryName)
-    const jobId = crypto.randomUUID()
+  // Git Operations IPC
+  ipcMain.handle('git:operation', async (event, { repoUrl, localPath }) => {
+    if (!repoUrl || !localPath) return { success: false, message: 'Missing parameters' }
+    
+    // Save settings immediately
+    const settings = await readSettings()
+    settings.lastUsed = { repoUrl, destinationFolder: localPath }
+    await saveSettings(settings)
 
     try {
-      await fs.access(targetDirectory)
-      throw new Error(`目標資料夾已存在：${targetDirectory}`)
-    } catch (error) {
-      if (error && error.code !== 'ENOENT') {
-        throw error
-      }
-    }
-
-    const cloneArgs = [
-      'clone',
-      '--progress',
-      '--branch',
-      branch,
-      '--single-branch',
-      repoUrl,
-      targetDirectory
-    ]
-
-    const env = {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0'
-    }
-
-    let askPassPath = null
-    if (token) {
-      askPassPath = await createAskPassFile(jobId)
-      env.GITHUB_TOKEN = token
-      env.GIT_ASKPASS = askPassPath
-      env.GIT_ASKPASS_REQUIRE = 'force'
-    }
-
-    const child = spawn('git', cloneArgs, {
-      env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    cloneJobs.set(jobId, {
-      child,
-      askPassPath,
-      targetDirectory,
-      token,
-      completed: false
-    })
-
-    const emitProgress = (chunk, source) => {
-      const text = sanitizeMessage(String(chunk), token)
-      const lines = text
-        .split(/\r?\n|\r/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-
-      for (const line of lines) {
-        const percentMatch = line.match(/(\d{1,3})%/)
-        sendCloneEvent(targetWindow, 'git:progress', {
-          jobId,
-          source,
-          message: line,
-          percent: percentMatch ? Number(percentMatch[1]) : null
-        })
-      }
-    }
-
-    child.stdout.on('data', (chunk) => emitProgress(chunk, 'stdout'))
-    child.stderr.on('data', (chunk) => emitProgress(chunk, 'stderr'))
-
-    child.once('error', async (spawnError) => {
-      const job = cloneJobs.get(jobId)
-      if (!job || job.completed) {
-        return
+      let gitCheck;
+      try {
+        await fs.access(localPath)
+        gitCheck = simpleGit(localPath)
+      } catch {
+        // Directory doesn't exist
+        gitCheck = simpleGit()
       }
 
-      job.completed = true
-      await deleteFileQuietly(job.askPassPath)
-      cloneJobs.delete(jobId)
-
-      sendCloneEvent(targetWindow, 'git:done', {
-        jobId,
-        ok: false,
-        message: sanitizeMessage(spawnError.message, token)
-      })
-    })
-
-    child.once('close', async (code) => {
-      const job = cloneJobs.get(jobId)
-      if (!job || job.completed) {
-        return
-      }
-
-      job.completed = true
-      await deleteFileQuietly(job.askPassPath)
-
-      if (code === 0) {
-        sendCloneEvent(targetWindow, 'git:done', {
-          jobId,
-          ok: true,
-          message: 'Clone 完成。',
-          targetDirectory
-        })
+      event.sender.send('status:update', `Checking folder: ${localPath}...`)
+      
+      const exists = await fs.stat(localPath).catch(() => false)
+      
+      if (!exists) {
+        // Clone new
+        event.sender.send('status:update', `Cloning ${repoUrl}...`)
+        await simpleGit().clone(repoUrl, localPath)
+        return { success: true, message: 'Repository cloned successfully.' }
       } else {
-        sendCloneEvent(targetWindow, 'git:done', {
-          jobId,
-          ok: false,
-          message: `git clone 失敗（exit code: ${code ?? 'unknown'}）。`
-        })
+        // Check if valid repo
+        const isRepo = await gitCheck.checkIsRepo()
+        if (isRepo) {
+          event.sender.send('status:update', `Updating repository...`)
+          await gitCheck.pull()
+          return { success: true, message: 'Repository updated successfully.' }
+        } else {
+          // Folder exists but not a repo - check if empty
+          const files = await fs.readdir(localPath)
+          if (files.length === 0) {
+            event.sender.send('status:update', `Cloning into empty folder...`)
+            await simpleGit().clone(repoUrl, localPath)
+            return { success: true, message: 'Repository cloned successfully.' }
+          }
+          return { success: false, message: 'Folder exists and is not a git repository.' }
+        }
       }
-
-      cloneJobs.delete(jobId)
-    })
-
-    return {
-      ok: true,
-      jobId,
-      targetDirectory,
-      repositoryName
+    } catch (err) {
+      return { success: false, message: `Git Error: ${err.message}` }
     }
   })
 
-  ipcMain.handle('git:cancelClone', async (_, payload) => {
-    const jobId = String(payload?.jobId || '')
-    const job = cloneJobs.get(jobId)
-    if (!job) {
-      return { ok: false, message: '找不到進行中的 clone 工作。' }
-    }
-
-    job.completed = true
-    job.child.kill('SIGTERM')
-    await deleteFileQuietly(job.askPassPath)
-    cloneJobs.delete(jobId)
-
-    return { ok: true }
+  // Scan SVGs IPC
+  ipcMain.handle('scan:svgs', async (_, dir) => {
+    if (!dir) return []
+    const files = await scanDirectory(dir)
+    // Make paths relative for display if needed, but absolute is fine for file://
+    return files.map(f => ({
+      ...f,
+      relativePath: path.relative(dir, f.path)
+    }))
   })
 
-  ipcMain.handle('svg:list', async (_, payload) => {
-    const rootDirectory = String(payload?.rootDirectory || '').trim()
-    if (!rootDirectory) {
-      throw new Error('rootDirectory 為必填欄位。')
-    }
-
-    const files = await getSvgFiles(rootDirectory)
-    return { ok: true, files }
-  })
-
-  ipcMain.handle('svg:loadPreview', async (_, payload) => {
-    const svgPath = String(payload?.svgPath || '').trim()
-    if (!svgPath) {
-      throw new Error('svgPath 為必填欄位。')
-    }
-
-    const content = await fs.readFile(svgPath)
-    const dataUrl = `data:image/svg+xml;base64,${content.toString('base64')}`
-    return {
-      ok: true,
-      dataUrl
-    }
-  })
-}
-
-app.whenReady().then(() => {
-  registerIpcHandlers()
   createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  if (process.platform !== 'darwin') app.quit()
 })
