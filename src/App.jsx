@@ -67,6 +67,18 @@ const IconFolder = () => (
   </svg>
 );
 
+const IconChevronLeft = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 18 9 12 15 6"></polyline>
+  </svg>
+);
+
+const IconChevronRight = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="9 18 15 12 9 6"></polyline>
+  </svg>
+);
+
 // --- Components ---
 
 const SettingsModal = ({ 
@@ -134,14 +146,25 @@ const SettingsModal = ({
   );
 };
 
-const DetailView = ({ group, onClose }) => {
+const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
   const [selectedVariant, setSelectedVariant] = useState(group.items[0]);
 
+  // Reset to main variant (id 0) or first available when switching groups
   useEffect(() => {
-    // Reset to main variant (id 0) or first available when opening
     const main = group.items.find(v => v.variantId === 0) || group.items[0];
     setSelectedVariant(main);
   }, [group]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowLeft' && hasPrev) onPrev();
+      if (e.key === 'ArrowRight' && hasNext) onNext();
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hasPrev, hasNext, onPrev, onNext, onClose]);
 
   return (
     <div className="detail-view">
@@ -149,7 +172,31 @@ const DetailView = ({ group, onClose }) => {
          <button className="back-btn" onClick={onClose}>
            <IconBack /> Back
          </button>
-         <h2 style={{fontSize: '16px', margin: 0}}>{group.char} Details</h2>
+         
+         <div style={{flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 16}}>
+            <button 
+              className="icon-btn" 
+              onClick={onPrev} 
+              disabled={!hasPrev} 
+              title="Previous Character (Left Arrow)"
+              style={{opacity: hasPrev ? 1 : 0.3}}
+            >
+              <IconChevronLeft />
+            </button>
+            <h2 style={{fontSize: '18px', margin: 0, minWidth: 60, textAlign: 'center'}}>{group.char}</h2>
+            <button 
+              className="icon-btn" 
+              onClick={onNext} 
+              disabled={!hasNext} 
+              title="Next Character (Right Arrow)"
+              style={{opacity: hasNext ? 1 : 0.3}}
+            >
+              <IconChevronRight />
+            </button>
+         </div>
+
+         {/* Placeholder to balance the layout */}
+         <div style={{width: 60}}></div>
       </div>
       
       <div className="detail-content">
@@ -363,12 +410,22 @@ function App() {
         status={status}
       />
 
-      {selectedGroup && (
-        <DetailView 
-          group={selectedGroup} 
-          onClose={() => setSelectedGroup(null)} 
-        />
-      )}
+      {selectedGroup && (() => {
+        const index = filteredData.indexOf(selectedGroup);
+        const hasPrev = index > 0;
+        const hasNext = index < filteredData.length - 1;
+
+        return (
+          <DetailView 
+            group={selectedGroup} 
+            onClose={() => setSelectedGroup(null)}
+            hasPrev={hasPrev}
+            hasNext={hasNext} 
+            onPrev={() => hasPrev && setSelectedGroup(filteredData[index - 1])}
+            onNext={() => hasNext && setSelectedGroup(filteredData[index + 1])}
+          />
+        );
+      })()}
 
       {/* Status Toast */}
       {status && (
