@@ -334,25 +334,43 @@ function App() {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [returnToChar, setReturnToChar] = useState('');
   const charCardRefs = useRef(new Map());
+  const hasInitialized = useRef(false);
 
   // Initialize
   useEffect(() => {
-    window.appApi.getSettings().then(settings => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    let isMounted = true;
+
+    (async () => {
+      const settings = await window.appApi.getSettings();
+      if (!isMounted) return;
+
       if (settings.lastUsed) {
-        setRepoUrl(settings.lastUsed.repoUrl);
-        setLocalPath(settings.lastUsed.destinationFolder);
-        // If we have a path, try scanning immediately? Or user can click scan.
-        // Let's open settings if no path is set.
-        if (!settings.lastUsed.destinationFolder) setShowSettings(true);
+        const savedRepoUrl = settings.lastUsed.repoUrl || '';
+        const savedPath = settings.lastUsed.destinationFolder || '';
+
+        setRepoUrl(savedRepoUrl);
+        setLocalPath(savedPath);
+
+        if (savedPath) {
+          scanSvgs(savedPath);
+        } else {
+          setShowSettings(true);
+        }
       } else {
         setShowSettings(true);
       }
-    });
+    })();
 
     const unsubscribe = window.appApi.onStatusUpdate((msg) => {
       setStatus(msg);
     });
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -367,12 +385,12 @@ function App() {
     if (path) setLocalPath(path);
   };
 
-  const scanSvgs = async () => {
-    if (!localPath) return;
+  const scanSvgs = async (targetPath = localPath) => {
+    if (!targetPath) return;
     setLoading(true);
     setStatus('Scanning SVG files...');
     try {
-      const svgs = await window.appApi.scanSvgs(localPath);
+      const svgs = await window.appApi.scanSvgs(targetPath);
       setSvgList(svgs);
       const withViewBox = svgs.filter(s => s.viewBox).length;
       setStatus(`Found ${svgs.length} SVGs (${withViewBox} pre-calculated)`);
