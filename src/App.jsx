@@ -410,7 +410,8 @@ function App() {
     if (path) setLocalPath(path);
   };
 
-  const scanSvgs = async (targetPath = localPath) => {
+  const scanSvgs = async (targetPathOrEvent) => {
+    const targetPath = typeof targetPathOrEvent === 'string' ? targetPathOrEvent : localPath;
     if (!targetPath) return;
     setLoading(true);
     setStatus('Scanning SVG files...');
