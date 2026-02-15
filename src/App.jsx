@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import './App.css';
 import SvgAutoCrop from './SvgAutoCrop';
+import LazyCharCard from './LazyCharCard';
 
 // --- Helper Functions ---
 
@@ -314,23 +315,6 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
 };
 
 
-function useInfiniteScroll(items, step = 50) {
-  const [limit, setLimit] = useState(step);
-  
-  useEffect(() => {
-    setLimit(step);
-  }, [items, step]);
-
-  const loadMore = () => {
-    setLimit(prev => Math.min(prev + step, items.length));
-  };
-  
-  const visibleItems = items.slice(0, limit);
-  const hasMore = limit < items.length;
-  
-  return { visibleItems, hasMore, loadMore };
-}
-
 function App() {
   // State
   const [repoUrl, setRepoUrl] = useState('');
@@ -445,51 +429,6 @@ function App() {
     );
   }, [groupedData, searchQuery]);
 
-  // Virtualization / Infinite Scroll
-  const { visibleItems, hasMore, loadMore } = useInfiniteScroll(filteredData, 50);
-
-  // Preload adjacent characters when selectedGroup changes
-  useEffect(() => {
-    if (!selectedGroup) return;
-    
-    const preloadSvg = (path) => {
-      const link = document.createElement('link');
-      link.rel = 'prefetch';
-      link.href = `file://${path}`;
-      link.as = 'fetch';
-      document.head.appendChild(link);
-    };
-    
-    const index = filteredData.indexOf(selectedGroup);
-    
-    // Preload previous character's main SVG
-    if (index > 0 && filteredData[index - 1]) {
-      preloadSvg(filteredData[index - 1].mainSvg.path);
-    }
-    
-    // Preload next character's main SVG
-    if (index < filteredData.length - 1 && filteredData[index + 1]) {
-      preloadSvg(filteredData[index + 1].mainSvg.path);
-    }
-  }, [selectedGroup, filteredData]);
-
-  // Intersection Observer for loading more
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore) {
-          loadMore();
-        }
-      },
-      { threshold: 0.1, rootMargin: '100px' }
-    );
-
-    const trigger = document.getElementById('scroll-trigger');
-    if (trigger) observer.observe(trigger);
-
-    return () => observer.disconnect();
-  }, [hasMore, loadMore]);
-
   return (
     <div className="app-container">
       {/* Toolbar */}
@@ -528,34 +467,27 @@ function App() {
           </div>
         ) : (
           <>
-            <div className="char-grid">
-              {visibleItems.map(group => (
-                <div 
-                  key={group.char} 
-                  className="char-card"
-                  onClick={() => setSelectedGroup(group)}
-                >
-                  {group.items.length > 1 && (
-                    <span className="variant-badge">+{group.items.length - 1}</span>
-                  )}
-                  <div className="char-preview">
-                    {/* Use SvgAutoCrop with existing viewBox if available */}
-                    <SvgAutoCrop 
-                      url={`file://${group.mainSvg.path}`} 
-                      viewBox={group.mainSvg.viewBox}
-                      style={{ width: '100%', height: '100%' }}
-                    />
-                  </div>
-                  <div className="char-name">{group.char}</div>
-                </div>
-              ))}
-            </div>
-            {hasMore && (
-              <div id="scroll-trigger" style={{ height: 20, margin: 20, textAlign: 'center' }}>
-                Loading more...
+            {filteredData.length > 100 && (
+              <div style={{ 
+                padding: '12px 0', 
+                textAlign: 'center', 
+                color: 'var(--text-secondary)', 
+                fontSize: '13px',
+                marginBottom: '10px'
+              }}>
+                Showing {filteredData.length} character{filteredData.length !== 1 ? 's' : ''} 
+                {searchQuery && ` matching "${searchQuery}"`}
               </div>
             )}
-            <div style={{ height: 20 }}></div>
+            <div className="char-grid">
+              {filteredData.map(group => (
+                <LazyCharCard
+                  key={group.char}
+                  group={group}
+                  onClick={() => setSelectedGroup(group)}
+                />
+              ))}
+            </div>
           </>
         )}
       </div>

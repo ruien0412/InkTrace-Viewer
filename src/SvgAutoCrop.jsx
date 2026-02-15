@@ -41,7 +41,13 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
 
   // 2. Measure SVG Content Bounding Box (ONLY if viewBox not provided)
   useEffect(() => {
-    // skip if we already have a viewBox or already measured
+    // skip if we already have a viewBox from props - no need to measure!
+    if (initialViewBox) {
+      measurementDoneRef.current = true;
+      return;
+    }
+    
+    // skip if we already measured or no content
     if (viewBox || !svgContent || !hiddenContainerRef.current || measurementDoneRef.current) return;
 
     const container = hiddenContainerRef.current;

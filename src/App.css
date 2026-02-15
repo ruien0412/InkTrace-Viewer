@@ -155,6 +155,8 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   gap: 16px;
   padding-bottom: 40px;
+  /* Performance optimization */
+  contain: layout style paint;
 }
 
 .char-card {
@@ -171,6 +173,8 @@ body {
   height: 100px;
   position: relative;
   will-change: transform;
+  /* Performance optimization */
+  contain: layout style paint;
 }
 
 .char-card:hover {
