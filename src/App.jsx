@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
 
-// Helper to parse filename
-// Rules: Character.svg, Character-N.svg (duplicate/variant). 
-// If unicode (uniXXXX, uXXXX), convert to character.
+// --- Helper Functions ---
+
 function parseSvgName(filename) {
   const nameWithoutExt = filename.replace(/\.svg$/i, '');
-  // Check for variant suffix "-N" where N is digits
   const match = nameWithoutExt.match(/^(.*)-(\d+)$/);
   
   let base = nameWithoutExt;
@@ -19,8 +17,6 @@ function parseSvgName(filename) {
   
   // Unicode conversion
   let char = base;
-  // Regex for "uniXXXX", "uXXXX", "U+XXXX" (4-5 hex chars)
-  // Supports formats like U+1234.svg, uni1234.svg, u1234.svg
   const hexMatch = base.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,5})$/i);
   if (hexMatch) {
     try {
@@ -33,62 +29,228 @@ function parseSvgName(filename) {
     }
   }
 
-  return { char, variantId };
+  return { char, variantId, displayName: char };
 }
 
+
+// --- Icons ---
+const IconSettings = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"></circle>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+  </svg>
+);
+
+const IconSearch = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{position:'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.5}}>
+    <circle cx="11" cy="11" r="8"></circle>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+  </svg>
+);
+
+const IconBack = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="15 18 9 12 15 6"></polyline>
+  </svg>
+);
+
+const IconClose = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"></line>
+    <line x1="6" y1="6" x2="18" y2="18"></line>
+  </svg>
+);
+
+const IconFolder = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+  </svg>
+);
+
+// --- Components ---
+
+const SettingsModal = ({ 
+  isOpen, 
+  onClose, 
+  repoUrl, 
+  setRepoUrl, 
+  localPath, 
+  setLocalPath, 
+  onBrowse, 
+  onClone, 
+  onScan, 
+  loading, 
+  status 
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal">
+        <div className="modal-header">
+          <h2>Settings</h2>
+          <button className="icon-btn" onClick={onClose}><IconClose /></button>
+        </div>
+        <div className="modal-content">
+          <div className="form-group">
+            <label>Git Repository URL</label>
+            <input 
+              value={repoUrl} 
+              onChange={(e) => setRepoUrl(e.target.value)} 
+              placeholder="https://github.com/user/repo" 
+            />
+          </div>
+          <div className="form-group">
+            <label>Local Folder Path</label>
+            <div className="input-row">
+              <input 
+                style={{flex: 1}}
+                value={localPath} 
+                onChange={(e) => setLocalPath(e.target.value)} 
+                placeholder="/path/to/local/folder" 
+              />
+              <button className="btn" onClick={onBrowse} title="Browse Folder">
+                <IconFolder />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn" onClick={onClone} disabled={loading || !repoUrl || !localPath}>
+            {loading ? 'Processing...' : 'Clone / Update'}
+          </button>
+          <button className="btn primary" onClick={onScan} disabled={loading || !localPath}>
+            {loading ? 'Scanning...' : 'Scan Folder'}
+          </button>
+        </div>
+        {loading && (
+          <div className="loading-overlay">
+            <div className="spinner"></div> {/* Could add CSS spinner */}
+            <span>{status || 'Working...'}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const DetailView = ({ group, onClose }) => {
+  const [selectedVariant, setSelectedVariant] = useState(group.items[0]);
+
+  useEffect(() => {
+    // Reset to main variant (id 0) or first available when opening
+    const main = group.items.find(v => v.variantId === 0) || group.items[0];
+    setSelectedVariant(main);
+  }, [group]);
+
+  return (
+    <div className="detail-view">
+      <div className="detail-toolbar">
+         <button className="back-btn" onClick={onClose}>
+           <IconBack /> Back
+         </button>
+         <h2 style={{fontSize: '16px', margin: 0}}>{group.char} Details</h2>
+      </div>
+      
+      <div className="detail-content">
+        <div className="variant-sidebar">
+          <div className="variant-sidebar-header">
+            Variants ({group.items.length})
+          </div>
+          <div className="variant-list">
+            {group.items.map((v, i) => (
+              <div 
+                key={i} 
+                className={`variant-item ${selectedVariant === v ? 'active' : ''}`}
+                onClick={() => setSelectedVariant(v)}
+              >
+                <div className="variant-thumb">
+                   <img src={`file://${v.path}`} alt="" loading="lazy"/>
+                </div>
+                <div className="variant-info">
+                  <span className="variant-name">
+                    {v.variantId === 0 ? 'Main Version' : `Variant ${v.variantId}`}
+                  </span>
+                  <span className="variant-meta">{v.relativePath}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        <div className="preview-area">
+          {selectedVariant && (
+             <img src={`file://${selectedVariant.path}`} alt={selectedVariant.name} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function App() {
+  // State
   const [repoUrl, setRepoUrl] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [svgList, setSvgList] = useState([]);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState(null);
 
+  // Initialize
   useEffect(() => {
-    // Load initial settings
     window.appApi.getSettings().then(settings => {
       if (settings.lastUsed) {
         setRepoUrl(settings.lastUsed.repoUrl);
         setLocalPath(settings.lastUsed.destinationFolder);
+        // If we have a path, try scanning immediately? Or user can click scan.
+        // Let's open settings if no path is set.
+        if (!settings.lastUsed.destinationFolder) setShowSettings(true);
+      } else {
+        setShowSettings(true);
       }
     });
 
-    // Listen for status updates
     const unsubscribe = window.appApi.onStatusUpdate((msg) => {
       setStatus(msg);
+      // Auto-hide status after 3s
+      if (msg) setTimeout(() => setStatus(''), 3000);
     });
     return () => unsubscribe();
   }, []);
 
+  // Actions
   const handleBrowse = async () => {
     const path = await window.appApi.pickFolder();
     if (path) setLocalPath(path);
   };
 
-  const scanSvgs = async (path) => {
+  const scanSvgs = async () => {
+    if (!localPath) return;
     setLoading(true);
-    setStatus('Scanning for SVGs...');
+    setStatus('Scanning...');
     try {
-      const svgs = await window.appApi.scanSvgs(path);
+      const svgs = await window.appApi.scanSvgs(localPath);
       setSvgList(svgs);
       setStatus(`Found ${svgs.length} SVGs`);
+      setShowSettings(false); // Close modal on success
     } catch (err) {
-      setStatus('Error scanning: ' + err.message);
+      setStatus('Error: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCloneOrUpdate = async () => {
-    if (!repoUrl || !localPath) {
-      setStatus('Please provide URL and Folder');
-      return;
-    }
+    if (!repoUrl || !localPath) return;
     setLoading(true);
     try {
       const result = await window.appApi.gitOperation({ repoUrl, localPath });
       setStatus(result.message);
       if (result.success) {
-        await scanSvgs(localPath);
+        await scanSvgs();
       }
     } catch (err) {
       setStatus('Error: ' + err.message);
@@ -97,7 +259,8 @@ function App() {
     }
   };
 
-  const groupedSvgs = useMemo(() => {
+  // Data Processing
+  const groupedData = useMemo(() => {
     const groups = {};
     svgList.forEach(svg => {
       const { char, variantId } = parseSvgName(svg.name);
@@ -105,78 +268,114 @@ function App() {
       groups[char].push({ ...svg, variantId });
     });
     
-    // Sort variants within each group
+    // Sort variants: Main (0) first, then by ID
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => a.variantId - b.variantId);
     });
 
-    // Return as array of { char, items }
-    return Object.entries(groups).map(([char, items]) => ({ char, items }));
+    return Object.entries(groups)
+      .map(([char, items]) => ({ 
+        char, 
+        items,
+        mainSvg: items.find(i => i.variantId === 0) || items[0]
+      }))
+      .sort((a, b) => a.char.localeCompare(b.char));
   }, [svgList]);
 
+  const filteredData = useMemo(() => {
+    if (!searchQuery) return groupedData;
+    const lowerQ = searchQuery.toLowerCase();
+    return groupedData.filter(g => 
+      g.char.toLowerCase().includes(lowerQ) || 
+      g.items.some(i => i.name.toLowerCase().includes(lowerQ))
+    );
+  }, [groupedData, searchQuery]);
+
   return (
-    <div className="container">
-      <header>
+    <div className="app-container">
+      {/* Toolbar */}
+      <div className="toolbar">
         <h1>InkTrace Viewer</h1>
-      </header>
-      
-      <div className="controls">
-        <div className="input-group">
-          <label>Git Repo URL:</label>
+        
+        <div className="search-bar">
+          <IconSearch />
           <input 
-            value={repoUrl} 
-            onChange={(e) => setRepoUrl(e.target.value)} 
-            placeholder="https://github.com/..." 
+            type="text" 
+            placeholder="Search characters (e.g. 'A', 'uni1234')..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        
-        <div className="input-group">
-          <label>Local Folder:</label>
-          <div style={{display: 'flex', gap: '8px'}}>
-            <input 
-              value={localPath} 
-              onChange={(e) => setLocalPath(e.target.value)} 
-              placeholder="/path/to/folder" 
-            />
-            <button onClick={handleBrowse}>Browse</button>
-          </div>
-        </div>
 
-        <div className="actions scan-controls">
-          <button onClick={handleCloneOrUpdate} disabled={loading}>
-            Clone / Update & Scan
-          </button>
-          <button onClick={() => scanSvgs(localPath)} disabled={loading || !localPath}>
-            Scan Folder Only
-          </button>
-        </div>
+        <div style={{flex: 1}}></div>
 
-        {status && <div className="status-bar">{status}</div>}
+        <button 
+          className="icon-btn" 
+          onClick={() => setShowSettings(true)}
+          title="Settings"
+        >
+          <IconSettings />
+        </button>
       </div>
 
-      <div className="char-groups">
-        {groupedSvgs.map((group) => (
-          <div key={group.char} className="char-group">
-            <div className="char-header">
-              {group.char} <span style={{fontSize: '1rem', color:'#aaa'}}>({group.items.length} variants)</span>
-            </div>
-            <div className="char-content">
-              {group.items.map((svg, index) => (
-                <div 
-                  key={index} 
-                  className={`variant-card ${svg.variantId === 0 ? 'main-variant' : ''}`} 
-                  title={svg.relativePath}
-                >
-                  <img src={`file://${svg.path}`} alt={svg.name} loading="lazy" />
-                  <div className="variant-label">
-                    {svg.name}
-                  </div>
+      {/* Main Grid */}
+      <div className="main-content">
+        {filteredData.length === 0 ? (
+          <div className="empty-state">
+            <p>{svgList.length === 0 ? "No characters loaded." : "No matches found."}</p>
+            {svgList.length === 0 && (
+              <button onClick={() => setShowSettings(true)}>Configure Source</button>
+            )}
+          </div>
+        ) : (
+          <div className="char-grid">
+            {filteredData.map(group => (
+              <div 
+                key={group.char} 
+                className="char-card"
+                onClick={() => setSelectedGroup(group)}
+              >
+                {group.items.length > 1 && (
+                  <span className="variant-badge">+{group.items.length - 1}</span>
+                )}
+                <div className="char-preview">
+                  <img src={`file://${group.mainSvg.path}`} alt={group.char} loading="lazy" />
                 </div>
-              ))}
-            </div>
+                <div className="char-name">{group.char}</div>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
+
+      {/* Overlays */}
+      <SettingsModal 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        repoUrl={repoUrl}
+        setRepoUrl={setRepoUrl}
+        localPath={localPath}
+        setLocalPath={setLocalPath}
+        onBrowse={handleBrowse}
+        onClone={handleCloneOrUpdate}
+        onScan={scanSvgs}
+        loading={loading}
+        status={status}
+      />
+
+      {selectedGroup && (
+        <DetailView 
+          group={selectedGroup} 
+          onClose={() => setSelectedGroup(null)} 
+        />
+      )}
+
+      {/* Status Toast */}
+      {status && (
+        <div className="toast-container">
+           <div className="toast">{status}</div>
+        </div>
+      )}
     </div>
   );
 }
