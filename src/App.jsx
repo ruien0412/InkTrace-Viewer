@@ -19,16 +19,23 @@ function parseSvgName(filename) {
   
   // Unicode conversion
   let char = base;
-  const hexMatch = base.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,5})$/i);
-  if (hexMatch) {
-    try {
-      const code = parseInt(hexMatch[1], 16);
-      if (!isNaN(code)) {
-        char = String.fromCodePoint(code);
-      }
-    } catch (e) {
-      console.warn('Failed to parse unicode:', base);
+  const parseCodePointToken = (token) => {
+    const tokenMatch = token.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,6})$/i);
+    if (!tokenMatch) return null;
+    const codePoint = parseInt(tokenMatch[1], 16);
+    return Number.isNaN(codePoint) ? null : codePoint;
+  };
+
+  try {
+    const parts = base.split('_').filter(Boolean);
+    const parsedCodes = parts.map(parseCodePointToken);
+    const allValid = parsedCodes.length > 0 && parsedCodes.every(code => code !== null);
+
+    if (allValid) {
+      char = String.fromCodePoint(...parsedCodes);
     }
+  } catch (e) {
+    console.warn('Failed to parse unicode:', base);
   }
 
   return { char, variantId, displayName: char };
