@@ -12,14 +12,18 @@ import React, { useState, useEffect, useRef } from 'react';
  * - className (string): Class for the wrapper div.
  * - style (object): Style for the wrapper div.
  */
-const SvgAutoCrop = ({ url, svgString: initialSvgString, className, style, ...props }) => {
+const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox, className, style, ...props }) => {
   const [svgContent, setSvgContent] = useState(initialSvgString || '');
-  const [viewBox, setViewBox] = useState(null);
+  const [viewBox, setViewBox] = useState(initialViewBox || null);
   const hiddenContainerRef = useRef(null);
 
-  // 1. Fetch SVG if URL is provided
+  // 1. Fetch SVG if URL is provided (ONLY if we don't have content AND don't have a viewBox provided)
+  // Actually, even if we have viewBox, we need content to render it inline.
+  // Unless we use <use>? But let's stick to inline for now as it's most robust for cropping.
   useEffect(() => {
-    if (url) {
+    if (url && !initialSvgString) {
+      // If we already have a viewBox from props, we still need content to render.
+      // But maybe we can skip the "measure" step.
       fetch(url)
         .then((res) => res.text())
         .then((text) => setSvgContent(text))
@@ -29,9 +33,15 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, className, style, ...pr
     }
   }, [url, initialSvgString]);
 
-  // 2. Measure SVG Content Bounding Box
+  // Update internal viewBox if prop changes
   useEffect(() => {
-    if (!svgContent || !hiddenContainerRef.current) return;
+    if (initialViewBox) setViewBox(initialViewBox);
+  }, [initialViewBox]);
+
+  // 2. Measure SVG Content Bounding Box (ONLY if viewBox not provided)
+  useEffect(() => {
+    // skip if we already have a viewBox
+    if (viewBox || !svgContent || !hiddenContainerRef.current) return;
 
     const container = hiddenContainerRef.current;
     

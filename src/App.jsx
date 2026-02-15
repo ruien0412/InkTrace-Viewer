@@ -213,7 +213,13 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
                 onClick={() => setSelectedVariant(v)}
               >
                 <div className="variant-thumb">
-                   <img src={`file://${v.path}`} alt="" loading="lazy"/>
+                   {/* Use SvgAutoCrop for consistent cropping even in thumbnails */}
+                   <SvgAutoCrop 
+                     url={`file://${v.path}`} 
+                     viewBox={v.viewBox}
+                     style={{ width: '100%', height: '100%' }}
+                     className="thumb-svg"
+                   />
                 </div>
                 <div className="variant-info">
                   <span className="variant-name">
@@ -231,6 +237,7 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
             <div style={{ width: '100%', height: '100%', padding: 20 }}>
              <SvgAutoCrop 
                url={`file://${selectedVariant.path}`} 
+               viewBox={selectedVariant.viewBox}
                style={{ width: '100%', height: '100%' }}
              />
              <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 12, color: '#888' }}>
@@ -243,6 +250,24 @@ const DetailView = ({ group, onClose, onPrev, onNext, hasPrev, hasNext }) => {
     </div>
   );
 };
+
+
+function useInfiniteScroll(items, step = 50) {
+  const [limit, setLimit] = useState(step);
+  
+  useEffect(() => {
+    setLimit(step);
+  }, [items, step]);
+
+  const loadMore = () => {
+    setLimit(prev => Math.min(prev + step, items.length));
+  };
+  
+  const visibleItems = items.slice(0, limit);
+  const hasMore = limit < items.length;
+  
+  return { visibleItems, hasMore, loadMore };
+}
 
 function App() {
   // State
@@ -319,7 +344,16 @@ function App() {
   const groupedData = useMemo(() => {
     const groups = {};
     svgList.forEach(svg => {
-      const { char, variantId } = parseSvgName(svg.name);
+      let char, variantId;
+      try {
+         const parsed = parseSvgName(svg.name);
+         char = parsed.char;
+         variantId = parsed.variantId;
+      } catch (e) {
+         char = svg.name;
+         variantId = 0;
+      }
+      
       if (!groups[char]) groups[char] = [];
       groups[char].push({ ...svg, variantId });
     });
@@ -329,6 +363,7 @@ function App() {
       groups[key].sort((a, b) => a.variantId - b.variantId);
     });
 
+    // Extract main SVG for preview
     return Object.entries(groups)
       .map(([char, items]) => ({ 
         char, 
@@ -346,6 +381,26 @@ function App() {
       g.items.some(i => i.name.toLowerCase().includes(lowerQ))
     );
   }, [groupedData, searchQuery]);
+
+  // Virtualization / Infinite Scroll
+  const { visibleItems, hasMore, loadMore } = useInfiniteScroll(filteredData, 50);
+
+  // Intersection Observer for loading more
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          loadMore();
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+
+    const trigger = document.getElementById('scroll-trigger');
+    if (trigger) observer.observe(trigger);
+
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
 
   return (
     <div className="app-container">
@@ -384,26 +439,36 @@ function App() {
             )}
           </div>
         ) : (
-          <div className="char-grid">
-            {filteredData.map(group => (
-              <div 
-                key={group.char} 
-                className="char-card"
-                onClick={() => setSelectedGroup(group)}
-              >
-                {group.items.length > 1 && (
-                  <span className="variant-badge">+{group.items.length - 1}</span>
-                )}
-                <div className="char-preview">
-                  <SvgAutoCrop 
-                    url={`file://${group.mainSvg.path}`} 
-                    style={{ width: '100%', height: '100%' }}
-                  />
+          <>
+            <div className="char-grid">
+              {visibleItems.map(group => (
+                <div 
+                  key={group.char} 
+                  className="char-card"
+                  onClick={() => setSelectedGroup(group)}
+                >
+                  {group.items.length > 1 && (
+                    <span className="variant-badge">+{group.items.length - 1}</span>
+                  )}
+                  <div className="char-preview">
+                    {/* Use SvgAutoCrop with existing viewBox if available */}
+                    <SvgAutoCrop 
+                      url={`file://${group.mainSvg.path}`} 
+                      viewBox={group.mainSvg.viewBox}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  </div>
+                  <div className="char-name">{group.char}</div>
                 </div>
-                <div className="char-name">{group.char}</div>
+              ))}
+            </div>
+            {hasMore && (
+              <div id="scroll-trigger" style={{ height: 20, margin: 20, textAlign: 'center' }}>
+                Loading more...
               </div>
-            ))}
-          </div>
+            )}
+            <div style={{ height: 20 }}></div>
+          </>
         )}
       </div>
 
