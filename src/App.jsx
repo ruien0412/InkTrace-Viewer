@@ -344,11 +344,15 @@ function App() {
 
     const unsubscribe = window.appApi.onStatusUpdate((msg) => {
       setStatus(msg);
-      // Auto-hide status after 3s
-      if (msg) setTimeout(() => setStatus(''), 3000);
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!status) return;
+    const timeout = setTimeout(() => setStatus(''), 2500);
+    return () => clearTimeout(timeout);
+  }, [status]);
 
   // Actions
   const handleBrowse = async () => {
