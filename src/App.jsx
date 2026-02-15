@@ -311,11 +311,12 @@ function App() {
   const scanSvgs = async () => {
     if (!localPath) return;
     setLoading(true);
-    setStatus('Scanning...');
+    setStatus('Scanning SVG files...');
     try {
       const svgs = await window.appApi.scanSvgs(localPath);
       setSvgList(svgs);
-      setStatus(`Found ${svgs.length} SVGs`);
+      const withViewBox = svgs.filter(s => s.viewBox).length;
+      setStatus(`Found ${svgs.length} SVGs (${withViewBox} pre-calculated)`);
       setShowSettings(false); // Close modal on success
     } catch (err) {
       setStatus('Error: ' + err.message);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 /**
  * SvgAutoCrop Component
@@ -16,6 +16,7 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
   const [svgContent, setSvgContent] = useState(initialSvgString || '');
   const [viewBox, setViewBox] = useState(initialViewBox || null);
   const hiddenContainerRef = useRef(null);
+  const measurementDoneRef = useRef(false);
 
   // 1. Fetch SVG if URL is provided (ONLY if we don't have content AND don't have a viewBox provided)
   // Actually, even if we have viewBox, we need content to render it inline.
@@ -40,8 +41,8 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
 
   // 2. Measure SVG Content Bounding Box (ONLY if viewBox not provided)
   useEffect(() => {
-    // skip if we already have a viewBox
-    if (viewBox || !svgContent || !hiddenContainerRef.current) return;
+    // skip if we already have a viewBox or already measured
+    if (viewBox || !svgContent || !hiddenContainerRef.current || measurementDoneRef.current) return;
 
     const container = hiddenContainerRef.current;
     
@@ -62,27 +63,33 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
     container.appendChild(svgElement);
 
     try {
-      // getBBox() on the <svg> element returns the bounding box of its *renderable content*
-      // (paths, shapes, groups) in user coordinate system.
-      // It does NOT include the SVG's own viewport or padding.
-      const bbox = svgElement.getBBox();
-      
-      if (bbox) {
-         // Create new viewBox: "min-x min-y width height"
-         // Using Math.floor/ceil to ensure we don't clip sub-pixel rendering edges
-         const padding = 2; // Optional: add small padding
-         const x = Math.floor(bbox.x - padding);
-         const y = Math.floor(bbox.y - padding);
-         const w = Math.ceil(bbox.width + padding * 2);
-         const h = Math.ceil(bbox.height + padding * 2);
-         
-         const newViewBox = `${x} ${y} ${w} ${h}`;
-         setViewBox(newViewBox);
-      }
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        try {
+          // getBBox() on the <svg> element returns the bounding box of its *renderable content*
+          const bbox = svgElement.getBBox();
+          
+          if (bbox && bbox.width > 0 && bbox.height > 0) {
+            // Create new viewBox: "min-x min-y width height"
+            const padding = 2;
+            const x = Math.floor(bbox.x - padding);
+            const y = Math.floor(bbox.y - padding);
+            const w = Math.ceil(bbox.width + padding * 2);
+            const h = Math.ceil(bbox.height + padding * 2);
+            
+            const newViewBox = `${x} ${y} ${w} ${h}`;
+            setViewBox(newViewBox);
+            measurementDoneRef.current = true;
+          }
+        } catch (error) {
+          console.error('Error calculating SVG bbox:', error);
+        } finally {
+          // Clean up immediately after measurement
+          if (container) container.innerHTML = '';
+        }
+      });
     } catch (error) {
-       console.error('Error calculating SVG bbox:', error);
-       // If measurement fails (e.g. no renderable content), 
-       // keep original or let it be.
+       console.error('Error in measurement setup:', error);
     }
     
     return () => {
@@ -90,14 +97,13 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
         hiddenContainerRef.current.innerHTML = '';
       }
     };
-  }, [svgContent]);
+  }, [svgContent, viewBox]);
 
-  // 3. Render Final SVG with optimized ViewBox
-  const renderOptimizedSvg = () => {
+  // 3. Render Final SVG with optimized ViewBox (memoized)
+  const renderedSvg = useMemo(() => {
       if (!svgContent) return null;
 
       // Parse string to modify attributes
-      // (In production, consider useMemo for this part if svgContent is large/stable)
       const parser = new DOMParser();
       const doc = parser.parseFromString(svgContent, 'image/svg+xml');
       const svgEl = doc.querySelector('svg');
@@ -124,7 +130,7 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
             style={{ width: '100%', height: '100%' }}
           />
       );
-  };
+  }, [svgContent, viewBox]);
 
   return (
     <div 
@@ -152,7 +158,7 @@ const SvgAutoCrop = ({ url, svgString: initialSvgString, viewBox: initialViewBox
       />
 
       {/* Visible Content */}
-      {renderOptimizedSvg()}
+      {renderedSvg}
     </div>
   );
 };
