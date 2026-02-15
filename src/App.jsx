@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import './App.css';
 import SvgAutoCrop from './SvgAutoCrop';
 import LazyCharCard from './LazyCharCard';
@@ -325,6 +325,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState(null);
+  const [returnToChar, setReturnToChar] = useState('');
+  const charCardRefs = useRef(new Map());
 
   // Initialize
   useEffect(() => {
@@ -429,6 +431,33 @@ function App() {
     );
   }, [groupedData, searchQuery]);
 
+  const setCharCardRef = useCallback((char, node) => {
+    if (node) {
+      charCardRefs.current.set(char, node);
+    } else {
+      charCardRefs.current.delete(char);
+    }
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    if (selectedGroup?.char) {
+      setReturnToChar(selectedGroup.char);
+    }
+    setSelectedGroup(null);
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    if (selectedGroup || !returnToChar) return;
+
+    requestAnimationFrame(() => {
+      const cardNode = charCardRefs.current.get(returnToChar);
+      if (cardNode) {
+        cardNode.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+      }
+      setReturnToChar('');
+    });
+  }, [selectedGroup, returnToChar, filteredData]);
+
   return (
     <div className="app-container">
       {/* Toolbar - Only show when main grid is visible */}
@@ -484,11 +513,12 @@ function App() {
               )}
               <div className="char-grid">
                 {filteredData.map(group => (
-                  <LazyCharCard
-                    key={group.char}
-                    group={group}
-                    onClick={() => setSelectedGroup(group)}
-                  />
+                  <div key={group.char} ref={(node) => setCharCardRef(group.char, node)}>
+                    <LazyCharCard
+                      group={group}
+                      onClick={() => setSelectedGroup(group)}
+                    />
+                  </div>
                 ))}
               </div>
             </>
@@ -519,7 +549,7 @@ function App() {
         return (
           <DetailView 
             group={selectedGroup} 
-            onClose={() => setSelectedGroup(null)}
+            onClose={handleCloseDetail}
             hasPrev={hasPrev}
             hasNext={hasNext} 
             onPrev={() => hasPrev && setSelectedGroup(filteredData[index - 1])}

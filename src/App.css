@@ -445,7 +445,19 @@ body {
 }
 
 /* Smooth fade animation for preview content */
-.preview-area > div {\n  animation: fadeInScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);\n  will-change: opacity, transform;\n}\n\n/* SVG optimization */\n.preview-area svg,\n.char-preview svg,\n.variant-thumb svg {\n  shape-rendering: geometricPrecision;\n  image-rendering: -webkit-optimize-contrast;\n  image-rendering: crisp-edges;\n}
+.preview-area > div {
+  animation: fadeInScale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+/* SVG optimization */
+.preview-area svg,
+.char-preview svg,
+.variant-thumb svg {
+  shape-rendering: geometricPrecision;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
 
 /* Background patterns for preview area */
 .preview-area.bg-checkerboard {
