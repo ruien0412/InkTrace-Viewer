@@ -103,6 +103,16 @@ async function ensureDirectoryReadable(directoryPath) {
   await fs.access(directoryPath, fsConstants.R_OK | fsConstants.W_OK)
 }
 
+async function checkGitRepository(folderPath) {
+  const gitPath = path.join(folderPath, '.git')
+  try {
+    const stat = await fs.stat(gitPath)
+    return stat.isDirectory() || stat.isFile()
+  } catch {
+    return false
+  }
+}
+
 async function getSvgFiles(rootDirectory) {
   const svgFiles = []
 
@@ -204,6 +214,21 @@ function registerIpcHandlers() {
     }
 
     return { canceled: false, folderPath: result.filePaths[0] }
+  })
+
+  ipcMain.handle('repo:inspect', async (_, payload) => {
+    const rootDirectory = String(payload?.rootDirectory || '').trim()
+    if (!rootDirectory) {
+      throw new Error('rootDirectory 為必填欄位。')
+    }
+
+    await ensureDirectoryReadable(rootDirectory)
+    const isGitRepo = await checkGitRepository(rootDirectory)
+    return {
+      ok: true,
+      isGitRepo,
+      rootDirectory
+    }
   })
 
   ipcMain.handle('git:cloneStart', async (event, payload) => {

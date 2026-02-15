@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('appApi', {
       token: payload?.token
     }),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+  inspectRepo: (rootDirectory) => ipcRenderer.invoke('repo:inspect', { rootDirectory }),
   startClone: (payload) =>
     ipcRenderer.invoke('git:cloneStart', {
       repoUrl: payload?.repoUrl,

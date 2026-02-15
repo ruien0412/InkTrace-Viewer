@@ -5,6 +5,7 @@ const destinationInput = document.getElementById('destination')
 const historySelect = document.getElementById('historySelect')
 const pickFolderBtn = document.getElementById('pickFolderBtn')
 const cloneBtn = document.getElementById('cloneBtn')
+const openRepoBtn = document.getElementById('openRepoBtn')
 const cancelBtn = document.getElementById('cancelBtn')
 const status = document.getElementById('status')
 const logs = document.getElementById('logs')
@@ -47,8 +48,66 @@ function renderHistorySelect(records) {
 	}
 }
 
+function decodeUnicodeFilename(relativePath) {
+	const filename = relativePath.split('/').pop() || relativePath
+	const stem = filename.replace(/\.svg$/i, '')
+	const variantMatch = stem.match(/-(\d+)$/)
+	const variantNumber = variantMatch ? Number(variantMatch[1]) : null
+	const baseStem = variantMatch ? stem.slice(0, -variantMatch[0].length) : stem
+
+	const codeTokens = baseStem.split('_').filter(Boolean)
+	if (codeTokens.length === 0) {
+		return null
+	}
+
+	const codePoints = []
+	for (const token of codeTokens) {
+		const tokenMatch = token.match(/^U\+([0-9A-Fa-f]{4,6})$/)
+		if (!tokenMatch) {
+			return null
+		}
+
+		const codePoint = Number.parseInt(tokenMatch[1], 16)
+		if (!Number.isFinite(codePoint)) {
+			return null
+		}
+		codePoints.push(codePoint)
+	}
+
+	const text = String.fromCodePoint(...codePoints)
+	const variantLabel =
+		variantNumber === null ? '' : variantNumber === 1 ? '變種' : `變種-${variantNumber}`
+	const displayLabel = variantLabel ? `${text}（${variantLabel}）` : text
+
+	return {
+		text,
+		variantNumber,
+		variantLabel,
+		codeLabel: codeTokens.join('_'),
+		displayLabel
+	}
+}
+
 function setSvgFiles(files) {
-	allSvgFiles = files
+	allSvgFiles = files.map((file) => {
+		const decoded = decodeUnicodeFilename(file.relativePath)
+		const displayLabel = decoded ? `${decoded.displayLabel} ｜ ${file.relativePath}` : file.relativePath
+		const searchText = [
+			file.relativePath,
+			decoded?.text || '',
+			decoded?.codeLabel || '',
+			decoded?.variantLabel || ''
+		]
+			.join(' ')
+			.toLowerCase()
+
+		return {
+			...file,
+			decoded,
+			displayLabel,
+			searchText
+		}
+	})
 	applySvgSearch()
 }
 
@@ -57,9 +116,7 @@ function applySvgSearch() {
 	if (!keyword) {
 		filteredSvgFiles = allSvgFiles.slice()
 	} else {
-		filteredSvgFiles = allSvgFiles.filter((file) =>
-			file.relativePath.toLowerCase().includes(keyword)
-		)
+		filteredSvgFiles = allSvgFiles.filter((file) => file.searchText.includes(keyword))
 	}
 
 	renderCount = PAGE_SIZE
@@ -84,6 +141,7 @@ function setStatus(message) {
 
 function setBusy(isBusy) {
 	cloneBtn.disabled = isBusy
+	openRepoBtn.disabled = isBusy
 	cancelBtn.disabled = !isBusy
 	pickFolderBtn.disabled = isBusy
 }
@@ -113,7 +171,7 @@ function renderSvgList() {
 		const item = document.createElement('li')
 		const button = document.createElement('button')
 		button.type = 'button'
-		button.textContent = file.relativePath
+		button.textContent = file.displayLabel
 		if (file.fullPath === selectedSvgPath) {
 			button.classList.add('selected')
 		}
@@ -133,7 +191,10 @@ function renderSvgList() {
 }
 
 async function showPreview(svgPath, relativePath) {
-	previewTitle.textContent = `預覽：${relativePath}`
+	const decoded = decodeUnicodeFilename(relativePath)
+	previewTitle.textContent = decoded
+		? `預覽：${decoded.displayLabel} ｜ ${relativePath}`
+		: `預覽：${relativePath}`
 	previewContainer.classList.remove('preview-empty')
 	previewContainer.textContent = '載入中...'
 
@@ -194,6 +255,35 @@ historySelect.addEventListener('change', () => {
 
 svgSearch.addEventListener('input', () => {
 	applySvgSearch()
+})
+
+openRepoBtn.addEventListener('click', async () => {
+	const result = await window.appApi.pickFolder()
+	if (result.canceled || !result.folderPath) {
+		return
+	}
+
+	setStatus('檢查資料夾中...')
+	appendLog(`檢查 Repo：${result.folderPath}`)
+
+	try {
+		const inspected = await window.appApi.inspectRepo(result.folderPath)
+		if (!inspected.isGitRepo) {
+			setStatus('這個資料夾不是 Git Repo（找不到 .git）。')
+			appendLog('開啟失敗：資料夾不是 Git Repo。')
+			return
+		}
+
+		currentRepoDirectory = result.folderPath
+		destinationInput.value = result.folderPath
+		clearSvgListAndPreview()
+		setStatus('已開啟本機 Repo，準備掃描 SVG。')
+		appendLog(`已開啟本機 Repo：${currentRepoDirectory}`)
+		await refreshSvgList()
+	} catch (error) {
+		setStatus('開啟本機 Repo 失敗。')
+		appendLog(`開啟失敗：${error.message}`)
+	}
 })
 
 cloneBtn.addEventListener('click', async () => {
