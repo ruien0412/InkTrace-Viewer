@@ -1,5 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
+
+// Helper to parse filename
+// Rules: Character.svg, Character-N.svg (duplicate/variant). 
+// If unicode (uniXXXX, uXXXX), convert to character.
+function parseSvgName(filename) {
+  const nameWithoutExt = filename.replace(/\.svg$/i, '');
+  // Check for variant suffix "-N" where N is digits
+  const match = nameWithoutExt.match(/^(.*)-(\d+)$/);
+  
+  let base = nameWithoutExt;
+  let variantId = 0;
+  
+  if (match) {
+    base = match[1];
+    variantId = parseInt(match[2], 10);
+  }
+  
+  // Unicode conversion
+  let char = base;
+  // Regex for "uniXXXX", "uXXXX", "U+XXXX" (4-5 hex chars)
+  // Supports formats like U+1234.svg, uni1234.svg, u1234.svg
+  const hexMatch = base.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,5})$/i);
+  if (hexMatch) {
+    try {
+      const code = parseInt(hexMatch[1], 16);
+      if (!isNaN(code)) {
+        char = String.fromCodePoint(code);
+      }
+    } catch (e) {
+      console.warn('Failed to parse unicode:', base);
+    }
+  }
+
+  return { char, variantId };
+}
 
 function App() {
   const [repoUrl, setRepoUrl] = useState('');
@@ -62,6 +97,23 @@ function App() {
     }
   };
 
+  const groupedSvgs = useMemo(() => {
+    const groups = {};
+    svgList.forEach(svg => {
+      const { char, variantId } = parseSvgName(svg.name);
+      if (!groups[char]) groups[char] = [];
+      groups[char].push({ ...svg, variantId });
+    });
+    
+    // Sort variants within each group
+    Object.keys(groups).forEach(key => {
+      groups[key].sort((a, b) => a.variantId - b.variantId);
+    });
+
+    // Return as array of { char, items }
+    return Object.entries(groups).map(([char, items]) => ({ char, items }));
+  }, [svgList]);
+
   return (
     <div className="container">
       <header>
@@ -90,23 +142,38 @@ function App() {
           </div>
         </div>
 
-        <div className="actions">
+        <div className="actions scan-controls">
           <button onClick={handleCloneOrUpdate} disabled={loading}>
-            {loading ? 'Processing...' : 'Clone / Update & Scan'}
+            Clone / Update & Scan
+          </button>
+          <button onClick={() => scanSvgs(localPath)} disabled={loading || !localPath}>
+            Scan Folder Only
           </button>
         </div>
 
         {status && <div className="status-bar">{status}</div>}
       </div>
 
-      <div className="grid-container">
-        {svgList.map((svg, index) => (
-          <div key={index} className="grid-item" title={svg.relativePath}>
-            <div className="svg-preview">
-                <img src={`file://${svg.path}`} alt={svg.name} loading="lazy" />
+      <div className="char-groups">
+        {groupedSvgs.map((group) => (
+          <div key={group.char} className="char-group">
+            <div className="char-header">
+              {group.char} <span style={{fontSize: '1rem', color:'#aaa'}}>({group.items.length} variants)</span>
             </div>
-            <div className="svg-name">{svg.name}</div>
-             <div className="svg-path">{svg.relativePath}</div>
+            <div className="char-content">
+              {group.items.map((svg, index) => (
+                <div 
+                  key={index} 
+                  className={`variant-card ${svg.variantId === 0 ? 'main-variant' : ''}`} 
+                  title={svg.relativePath}
+                >
+                  <img src={`file://${svg.path}`} alt={svg.name} loading="lazy" />
+                  <div className="variant-label">
+                    {svg.name}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
