@@ -7,6 +7,78 @@ const os = require('node:os')
 const crypto = require('node:crypto')
 
 const cloneJobs = new Map()
+const MAX_HISTORY = 20
+
+function getSettingsFilePath() {
+  return path.join(app.getPath('userData'), 'settings.json')
+}
+
+function normalizeSettings(rawSettings = {}) {
+  const history = Array.isArray(rawSettings.history) ? rawSettings.history : []
+  const sanitizedHistory = history
+    .filter((item) => item && typeof item.repoUrl === 'string' && item.repoUrl.trim())
+    .map((item) => ({
+      repoUrl: String(item.repoUrl || '').trim(),
+      branch: String(item.branch || 'main').trim() || 'main',
+      destinationFolder: String(item.destinationFolder || '').trim(),
+      token: String(item.token || '').trim(),
+      lastUsedAt: Number(item.lastUsedAt) || Date.now()
+    }))
+    .sort((left, right) => right.lastUsedAt - left.lastUsedAt)
+    .slice(0, MAX_HISTORY)
+
+  return {
+    history: sanitizedHistory,
+    lastUsed: {
+      repoUrl: String(rawSettings?.lastUsed?.repoUrl || '').trim(),
+      branch: String(rawSettings?.lastUsed?.branch || 'main').trim() || 'main',
+      destinationFolder: String(rawSettings?.lastUsed?.destinationFolder || '').trim(),
+      token: String(rawSettings?.lastUsed?.token || '').trim()
+    }
+  }
+}
+
+async function readSettings() {
+  const settingsPath = getSettingsFilePath()
+  try {
+    const raw = await fs.readFile(settingsPath, 'utf8')
+    return normalizeSettings(JSON.parse(raw))
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') {
+      throw error
+    }
+    return normalizeSettings()
+  }
+}
+
+async function writeSettings(settings) {
+  const normalizedSettings = normalizeSettings(settings)
+  const settingsPath = getSettingsFilePath()
+  await fs.mkdir(path.dirname(settingsPath), { recursive: true })
+  await fs.writeFile(settingsPath, JSON.stringify(normalizedSettings, null, 2), 'utf8')
+  return normalizedSettings
+}
+
+function mergeHistory(history, input) {
+  const now = Date.now()
+  const nextItem = {
+    repoUrl: String(input?.repoUrl || '').trim(),
+    branch: String(input?.branch || 'main').trim() || 'main',
+    destinationFolder: String(input?.destinationFolder || '').trim(),
+    token: String(input?.token || '').trim(),
+    lastUsedAt: now
+  }
+
+  if (!nextItem.repoUrl) {
+    return history.slice(0, MAX_HISTORY)
+  }
+
+  const deduped = history.filter(
+    (item) => !(item.repoUrl === nextItem.repoUrl && item.branch === nextItem.branch)
+  )
+
+  return [nextItem, ...deduped].slice(0, MAX_HISTORY)
+}
 
 function sendCloneEvent(targetWindow, channel, payload) {
   if (targetWindow && !targetWindow.isDestroyed()) {
@@ -99,6 +171,29 @@ const createWindow = () => {
 }
 
 function registerIpcHandlers() {
+  ipcMain.handle('settings:get', async () => {
+    const settings = await readSettings()
+    return { ok: true, settings }
+  })
+
+  ipcMain.handle('settings:save', async (_, payload) => {
+    const currentSettings = await readSettings()
+    const input = {
+      repoUrl: String(payload?.repoUrl || '').trim(),
+      branch: String(payload?.branch || 'main').trim() || 'main',
+      destinationFolder: String(payload?.destinationFolder || '').trim(),
+      token: String(payload?.token || '').trim()
+    }
+
+    const nextSettings = {
+      history: mergeHistory(currentSettings.history, input),
+      lastUsed: input
+    }
+
+    const saved = await writeSettings(nextSettings)
+    return { ok: true, settings: saved }
+  })
+
   ipcMain.handle('dialog:pickFolder', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory', 'createDirectory']

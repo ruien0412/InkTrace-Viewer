@@ -2,11 +2,13 @@ const repoUrlInput = document.getElementById('repoUrl')
 const branchInput = document.getElementById('branch')
 const tokenInput = document.getElementById('token')
 const destinationInput = document.getElementById('destination')
+const historySelect = document.getElementById('historySelect')
 const pickFolderBtn = document.getElementById('pickFolderBtn')
 const cloneBtn = document.getElementById('cloneBtn')
 const cancelBtn = document.getElementById('cancelBtn')
 const status = document.getElementById('status')
 const logs = document.getElementById('logs')
+const svgSearch = document.getElementById('svgSearch')
 const svgList = document.getElementById('svgList')
 const previewTitle = document.getElementById('previewTitle')
 const previewContainer = document.getElementById('previewContainer')
@@ -15,9 +17,60 @@ const PAGE_SIZE = 200
 
 let activeJobId = null
 let currentRepoDirectory = ''
-let svgFiles = []
+let allSvgFiles = []
+let filteredSvgFiles = []
 let selectedSvgPath = ''
 let renderCount = PAGE_SIZE
+let historyRecords = []
+
+function buildHistoryKey(record) {
+	return `${record.repoUrl}@@${record.branch}`
+}
+
+function applyHistoryRecord(record) {
+	if (!record) {
+		return
+	}
+	repoUrlInput.value = record.repoUrl || ''
+	branchInput.value = record.branch || 'main'
+	destinationInput.value = record.destinationFolder || ''
+	tokenInput.value = record.token || ''
+}
+
+function renderHistorySelect(records) {
+	historySelect.innerHTML = '<option value="">請選擇</option>'
+	for (const record of records) {
+		const option = document.createElement('option')
+		option.value = buildHistoryKey(record)
+		option.textContent = `${record.repoUrl} [${record.branch}]`
+		historySelect.appendChild(option)
+	}
+}
+
+function setSvgFiles(files) {
+	allSvgFiles = files
+	applySvgSearch()
+}
+
+function applySvgSearch() {
+	const keyword = svgSearch.value.trim().toLowerCase()
+	if (!keyword) {
+		filteredSvgFiles = allSvgFiles.slice()
+	} else {
+		filteredSvgFiles = allSvgFiles.filter((file) =>
+			file.relativePath.toLowerCase().includes(keyword)
+		)
+	}
+
+	renderCount = PAGE_SIZE
+	renderSvgList()
+
+	if (filteredSvgFiles.length === 0) {
+		previewTitle.textContent = '預覽'
+		previewContainer.classList.add('preview-empty')
+		previewContainer.textContent = '查無符合條件的 SVG。'
+	}
+}
 
 function appendLog(message) {
 	const now = new Date().toLocaleTimeString('zh-TW', { hour12: false })
@@ -36,7 +89,8 @@ function setBusy(isBusy) {
 }
 
 function clearSvgListAndPreview() {
-	svgFiles = []
+	allSvgFiles = []
+	filteredSvgFiles = []
 	selectedSvgPath = ''
 	renderCount = PAGE_SIZE
 	svgList.innerHTML = ''
@@ -47,15 +101,15 @@ function clearSvgListAndPreview() {
 
 function loadMoreIfNeeded() {
 	const nearBottom = svgList.scrollTop + svgList.clientHeight >= svgList.scrollHeight - 40
-	if (nearBottom && renderCount < svgFiles.length) {
-		renderCount = Math.min(renderCount + PAGE_SIZE, svgFiles.length)
+	if (nearBottom && renderCount < filteredSvgFiles.length) {
+		renderCount = Math.min(renderCount + PAGE_SIZE, filteredSvgFiles.length)
 		renderSvgList()
 	}
 }
 
 function renderSvgList() {
 	const fragment = document.createDocumentFragment()
-	for (const file of svgFiles.slice(0, renderCount)) {
+	for (const file of filteredSvgFiles.slice(0, renderCount)) {
 		const item = document.createElement('li')
 		const button = document.createElement('button')
 		button.type = 'button'
@@ -107,12 +161,10 @@ async function refreshSvgList() {
 
 	try {
 		const response = await window.appApi.listSvgs(currentRepoDirectory)
-		svgFiles = response.files || []
-		renderCount = PAGE_SIZE
-		renderSvgList()
-		setStatus(`掃描完成，共 ${svgFiles.length} 個 SVG。`)
-		appendLog(`掃描完成，共 ${svgFiles.length} 個 SVG。`)
-		if (svgFiles.length === 0) {
+		setSvgFiles(response.files || [])
+		setStatus(`掃描完成，共 ${allSvgFiles.length} 個 SVG。`)
+		appendLog(`掃描完成，共 ${allSvgFiles.length} 個 SVG。`)
+		if (allSvgFiles.length === 0) {
 			previewTitle.textContent = '預覽'
 			previewContainer.classList.add('preview-empty')
 			previewContainer.textContent = '找不到 SVG 檔案。'
@@ -128,6 +180,20 @@ pickFolderBtn.addEventListener('click', async () => {
 	if (!result.canceled && result.folderPath) {
 		destinationInput.value = result.folderPath
 	}
+})
+
+historySelect.addEventListener('change', () => {
+	const value = historySelect.value
+	if (!value) {
+		return
+	}
+
+	const selected = historyRecords.find((record) => buildHistoryKey(record) === value)
+	applyHistoryRecord(selected)
+})
+
+svgSearch.addEventListener('input', () => {
+	applySvgSearch()
 })
 
 cloneBtn.addEventListener('click', async () => {
@@ -153,6 +219,15 @@ cloneBtn.addEventListener('click', async () => {
 	appendLog(`開始 clone：${repoUrl}（branch: ${branch}）`)
 
 	try {
+		const settingsResult = await window.appApi.saveSettings({
+			repoUrl,
+			branch,
+			destinationFolder,
+			token
+		})
+		historyRecords = settingsResult.settings.history || []
+		renderHistorySelect(historyRecords)
+
 		const startResult = await window.appApi.startClone({
 			repoUrl,
 			branch,
@@ -169,6 +244,18 @@ cloneBtn.addEventListener('click', async () => {
 		appendLog(`啟動失敗：${error.message}`)
 	}
 })
+
+async function initializeSettings() {
+	try {
+		const response = await window.appApi.getSettings()
+		const settings = response.settings || {}
+		historyRecords = settings.history || []
+		renderHistorySelect(historyRecords)
+		applyHistoryRecord(settings.lastUsed)
+	} catch (error) {
+		appendLog(`載入設定失敗：${error.message}`)
+	}
+}
 
 cancelBtn.addEventListener('click', async () => {
 	if (!activeJobId) {
@@ -226,3 +313,5 @@ window.addEventListener('beforeunload', () => {
 	offProgress()
 	offDone()
 })
+
+initializeSettings()

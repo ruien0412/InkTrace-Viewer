@@ -7,6 +7,14 @@ function safeSubscribe(channel, callback) {
 }
 
 contextBridge.exposeInMainWorld('appApi', {
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (payload) =>
+    ipcRenderer.invoke('settings:save', {
+      repoUrl: payload?.repoUrl,
+      branch: payload?.branch,
+      destinationFolder: payload?.destinationFolder,
+      token: payload?.token
+    }),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   startClone: (payload) =>
     ipcRenderer.invoke('git:cloneStart', {

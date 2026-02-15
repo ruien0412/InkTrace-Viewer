@@ -17,6 +17,12 @@
 
     <section class="panel form-panel">
       <div class="form-row">
+        <label for="historySelect">歷史紀錄（含 token）</label>
+        <select id="historySelect">
+          <option value="">請選擇</option>
+        </select>
+      </div>
+      <div class="form-row">
         <label for="repoUrl">GitHub Repo URL</label>
         <input id="repoUrl" type="text" placeholder="https://github.com/owner/repo.git" />
       </div>
@@ -46,6 +52,7 @@
     <section class="panel viewer-panel">
       <div class="svg-list-pane">
         <h2>SVG 清單</h2>
+        <input id="svgSearch" type="text" placeholder="搜尋 SVG 檔名或路徑" />
         <ul id="svgList"></ul>
       </div>
       <div class="svg-preview-pane">
@@ -93,13 +100,15 @@
     }
 
     input,
+    select,
     button {
       padding: 8px;
       font-size: 14px;
     }
 
     input[type='text'],
-    input[type='password'] {
+    input[type='password'],
+    select {
       width: 100%;
       box-sizing: border-box;
     }
@@ -138,6 +147,10 @@
     .svg-preview-pane h2 {
       margin: 0 0 8px;
       font-size: 16px;
+    }
+
+    #svgSearch {
+      margin-bottom: 8px;
     }
 
     #svgList {
