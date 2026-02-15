@@ -6,7 +6,44 @@ import LazyCharCard from './LazyCharCard';
 // --- Helper Functions ---
 
 function parseSvgName(filename) {
-  const nameWithoutExt = filename.replace(/\.svg$/i, '');
+  const normalizedPath = (filename || '').replace(/\\/g, '/');
+
+  const parseCodePointToken = (token) => {
+    const tokenMatch = token.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,6})$/i);
+    if (!tokenMatch) return null;
+    const codePoint = parseInt(tokenMatch[1], 16);
+    return Number.isNaN(codePoint) ? null : codePoint;
+  };
+
+  const decodeUnicodeLabel = (raw) => {
+    const parts = String(raw || '').split('_').filter(Boolean);
+    const parsedCodes = parts.map(parseCodePointToken);
+    const allValid = parsedCodes.length > 0 && parsedCodes.every(code => code !== null);
+    if (!allValid) return raw;
+    return String.fromCodePoint(...parsedCodes);
+  };
+
+  const duplicateMatch = normalizedPath.match(/(?:^|\/)duplicate\/([^/]+)\/([^/]+)\.svg$/i);
+  if (duplicateMatch) {
+    const char = decodeUnicodeLabel(duplicateMatch[1]);
+    const duplicateName = duplicateMatch[2];
+    let variantId = 1;
+
+    const timestampMatch = duplicateName.match(/^(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z$/);
+    if (timestampMatch) {
+      const [, date, hh, mm, ss, ms] = timestampMatch;
+      const iso = `${date}T${hh}:${mm}:${ss}.${ms}Z`;
+      const ts = Date.parse(iso);
+      if (Number.isFinite(ts)) {
+        variantId = ts;
+      }
+    }
+
+    return { char, variantId, displayName: char };
+  }
+
+  const fileNameOnly = normalizedPath.split('/').pop() || normalizedPath;
+  const nameWithoutExt = fileNameOnly.replace(/\.svg$/i, '');
   const match = nameWithoutExt.match(/^(.*)-(\d+)$/);
   
   let base = nameWithoutExt;
@@ -19,21 +56,9 @@ function parseSvgName(filename) {
   
   // Unicode conversion
   let char = base;
-  const parseCodePointToken = (token) => {
-    const tokenMatch = token.match(/^(?:uni|u\+|u)?([0-9A-Fa-f]{4,6})$/i);
-    if (!tokenMatch) return null;
-    const codePoint = parseInt(tokenMatch[1], 16);
-    return Number.isNaN(codePoint) ? null : codePoint;
-  };
 
   try {
-    const parts = base.split('_').filter(Boolean);
-    const parsedCodes = parts.map(parseCodePointToken);
-    const allValid = parsedCodes.length > 0 && parsedCodes.every(code => code !== null);
-
-    if (allValid) {
-      char = String.fromCodePoint(...parsedCodes);
-    }
+    char = decodeUnicodeLabel(base);
   } catch (e) {
     console.warn('Failed to parse unicode:', base);
   }
@@ -424,7 +449,7 @@ function App() {
     svgList.forEach(svg => {
       let char, variantId;
       try {
-         const parsed = parseSvgName(svg.name);
+         const parsed = parseSvgName(svg.relativePath || svg.name);
          char = parsed.char;
          variantId = parsed.variantId;
       } catch (e) {
