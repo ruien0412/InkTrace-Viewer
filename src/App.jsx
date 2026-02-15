@@ -431,66 +431,70 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Toolbar */}
-      <div className="toolbar">
-        <h1>InkTrace Viewer</h1>
-        
-        <div className="search-bar">
-          <IconSearch />
-          <input 
-            type="text" 
-            placeholder="Search characters (e.g. 'A', 'uni1234')..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        <div style={{flex: 1}}></div>
-
-        <button 
-          className="icon-btn" 
-          onClick={() => setShowSettings(true)}
-          title="Settings"
-        >
-          <IconSettings />
-        </button>
-      </div>
-
-      {/* Main Grid */}
-      <div className="main-content">
-        {filteredData.length === 0 ? (
-          <div className="empty-state">
-            <p>{svgList.length === 0 ? "No characters loaded." : "No matches found."}</p>
-            {svgList.length === 0 && (
-              <button onClick={() => setShowSettings(true)}>Configure Source</button>
-            )}
+      {/* Toolbar - Only show when main grid is visible */}
+      {!selectedGroup && (
+        <div className="toolbar">
+          <h1>InkTrace Viewer</h1>
+          
+          <div className="search-bar">
+            <IconSearch />
+            <input 
+              type="text" 
+              placeholder="Search characters (e.g. 'A', 'uni1234')..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-        ) : (
-          <>
-            {filteredData.length > 100 && (
-              <div style={{ 
-                padding: '12px 0', 
-                textAlign: 'center', 
-                color: 'var(--text-secondary)', 
-                fontSize: '13px',
-                marginBottom: '10px'
-              }}>
-                Showing {filteredData.length} character{filteredData.length !== 1 ? 's' : ''} 
-                {searchQuery && ` matching "${searchQuery}"`}
-              </div>
-            )}
-            <div className="char-grid">
-              {filteredData.map(group => (
-                <LazyCharCard
-                  key={group.char}
-                  group={group}
-                  onClick={() => setSelectedGroup(group)}
-                />
-              ))}
+
+          <div style={{flex: 1}}></div>
+
+          <button 
+            className="icon-btn" 
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+          >
+            <IconSettings />
+          </button>
+        </div>
+      )}
+
+      {/* Main Grid - Only render when no detail view is open */}
+      {!selectedGroup && (
+        <div className="main-content">
+          {filteredData.length === 0 ? (
+            <div className="empty-state">
+              <p>{svgList.length === 0 ? "No characters loaded." : "No matches found."}</p>
+              {svgList.length === 0 && (
+                <button onClick={() => setShowSettings(true)}>Configure Source</button>
+              )}
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              {filteredData.length > 100 && (
+                <div style={{ 
+                  padding: '12px 0', 
+                  textAlign: 'center', 
+                  color: 'var(--text-secondary)', 
+                  fontSize: '13px',
+                  marginBottom: '10px'
+                }}>
+                  Showing {filteredData.length} character{filteredData.length !== 1 ? 's' : ''} 
+                  {searchQuery && ` matching "${searchQuery}"`}
+                </div>
+              )}
+              <div className="char-grid">
+                {filteredData.map(group => (
+                  <LazyCharCard
+                    key={group.char}
+                    group={group}
+                    onClick={() => setSelectedGroup(group)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Overlays */}
       <SettingsModal 
