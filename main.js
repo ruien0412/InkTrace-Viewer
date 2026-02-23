@@ -23,88 +23,81 @@ async function saveSettings(settings) {
   await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8')
 }
 
-// --- Minimal SVG Bounding Box Calculation ---
-// Approximation: Extract all numeric sequences from path data and check min/max.
-// This is a heuristic that works well for many SVGs, especially icon sets.
-// For complex paths with relative commands or transforms, it acts as a best-effort guess.
-function getApproximateViewBox(svgContent) {
-  const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/);
-  // Always prefer explicit viewBox if available and valid?
-  // User wants to CROP, so original viewBox might be huge with small content.
-  // We want the content bbox.
-  
-  // Extract all path data
-  const pathMatches = svgContent.matchAll(/d="([^"]+)"/g);
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  let found = false;
+// --- Python-style Global SVG Scaling ---
+// Mirrors the two-pass approach from the Python font builder:
+// 1. Collect bounding boxes of all SVGs
+// 2. Use 5th/95th percentile to get a stable crop window (exclude outliers)
+// 3. Compute one global uniform square window for all glyphs
+// 4. Per-SVG: use the global window, shift only if content is outside it
 
-  for (const match of pathMatches) {
-    const d = match[1];
-    
-    // Check for relative commands which might throw off simple absolute extraction
-    // If complex relative paths exist, fallback to original viewBox might be safer?
-    // But let's try extracting all numbers. Usually control points are near anchors.
-    // If a path is "m 10 10 l 10 0", numbers are 10,10,10,0. Range 0-10. Correct? 
-    // No, l 10 0 means x+=10 (20). Actual max X is 20. Our heuristic sees 10.
-    // So relative commands break this simple "all numbers" approach.
-    
-    // However, given constraints, we'll try a hybrid approach:
-    // 1. If only absolute commands (uppercase), strict min/max.
-    // 2. If relative commands (lowercase), we might skip or try to simulate? 
-    // Simulation is hard without a library.
-    
-    // Let's stick to the user's suggestion of "regex for coordinates".
-    // We will blindly trust the numbers for now as a "rough crop".
-    // If the SVG uses relative commands extensively, this might fail to find the TRUE extent.
-    // But for "trimming whitespace", usually the start point (M) defines the top-left?
-    
-    const numbers = d.match(/-?[\d.]+/g);
-    if (numbers) {
-      found = true;
-      for (let i = 0; i < numbers.length; i++) {
-        const n = parseFloat(numbers[i]);
-        if (!isNaN(n)) {
-          // Heuristic: Coordinate values usually aren't singular. 
-          // But we can't distinguish X from Y easily in a flat list without parsing commands.
-          // Is it safe to mix X and Y for min/max? 
-          // No, minX might be huge if we include Y values, or minY might be tiny if we include X.
-          // Actually, X and Y ranges often overlap, so checking ALL numbers against min/max 
-          // yields the global bounding box of ALL numeric values.
-          // This creates a square-ish or varying aspect ratio crop that might be "safe" but loose.
-          // Use odd/even index heuristic?
-          // d="M 0 0 L 100 50" -> 0,0,100,50. Even indices: 0, 100 (X). Odd: 0, 50 (Y).
-          // This generally holds for M, L, C, S, Q, T.
-          // Exceptions: H (x only), V (y only), A (rx ry rot large sweep x y).
-          // A command breaks parity.
-          
-          if (i % 2 === 0) { // X
-             if (n < minX) minX = n;
-             if (n > maxX) maxX = n;
-          } else { // Y
-             if (n < minY) minY = n;
-             if (n > maxY) maxY = n;
-          }
-        }
+// Tokenize path d-string: [{cmd, val}, ...] — same regex as Python script
+function parsePathTokens(d) {
+  const regex = /([a-zA-Z])|([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/g;
+  const tokens = [];
+  let match;
+  while ((match = regex.exec(d)) !== null) {
+    if (match[1]) tokens.push({ cmd: match[1], val: null });
+    else tokens.push({ cmd: null, val: parseFloat(match[2]) });
+  }
+  return tokens;
+}
+
+// Calculate bounding box by alternating X/Y on each value — mirrors Python calculate_bounding_box
+function calculateBoundingBox(tokens) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let isX = true;
+  for (const { cmd, val } of tokens) {
+    if (cmd !== null) {
+      isX = true; // reset on every command letter
+    } else if (val !== null) {
+      if (isX) {
+        if (val < minX) minX = val;
+        if (val > maxX) maxX = val;
+        isX = false;
+      } else {
+        if (val < minY) minY = val;
+        if (val > maxY) maxY = val;
+        isX = true;
       }
     }
   }
-
-  if (!found || minX === Infinity || maxX === -Infinity) {
-    if (viewBoxMatch) return viewBoxMatch[1]; // Fallback
-    return null; 
-  }
-
-  // Add padding
-  const padding = 2; // match SvgAutoCrop
-  const x = Math.floor(minX - padding);
-  const y = Math.floor(minY - padding);
-  const w = Math.ceil(maxX - minX + padding * 2);
-  const h = Math.ceil(maxY - minY + padding * 2);
-
-  return `${x} ${y} ${w} ${h}`;
+  if (minX === Infinity) return null;
+  return { minX, maxX, minY, maxY };
 }
 
-// --- Recursive SVG Scanner ---
+// Extract combined path d string from SVG content
+function extractPathData(svgContent) {
+  const matches = [...svgContent.matchAll(/\bd="([^"]+)"/g)];
+  return matches.map(m => m[1]).join(' ');
+}
+
+// Compute per-SVG viewBox given the global window + this SVG's own bbox.
+// Shifts the window only for outliers that fall outside the global crop.
+function computeViewBox(bbox, globalOriginX, globalOriginY, uniformSquare) {
+  if (!bbox) return null;
+  const { minX, maxX, minY, maxY } = bbox;
+
+  let vx = globalOriginX;
+  let vy = globalOriginY;
+
+  // Shift X if content is outside the global window
+  if (minX < globalOriginX) {
+    vx = minX;
+  } else if (maxX > globalOriginX + uniformSquare) {
+    vx = maxX - uniformSquare;
+  }
+
+  // Shift Y if content is outside the global window
+  if (minY < globalOriginY) {
+    vy = minY;
+  } else if (maxY > globalOriginY + uniformSquare) {
+    vy = maxY - uniformSquare;
+  }
+
+  return `${vx.toFixed(2)} ${vy.toFixed(2)} ${uniformSquare.toFixed(2)} ${uniformSquare.toFixed(2)}`;
+}
+
+// --- Recursive SVG Scanner (collect file paths only) ---
 async function scanDirectory(dir) {
   let results = []
   try {
@@ -113,24 +106,9 @@ async function scanDirectory(dir) {
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
-         // Fix recursion: explicitly concat results
          results = results.concat(await scanDirectory(fullPath))
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.svg')) {
-        let viewBox = null;
-        try {
-           // Read file content for BBox calculation (performance impact warning!)
-           const content = await fs.readFile(fullPath, 'utf8');
-           viewBox = getApproximateViewBox(content);
-        } catch (e) {
-           console.warn(`Failed to read/parse ${entry.name}:`, e);
-        }
-
-        results.push({
-          name: entry.name,
-          path: fullPath,
-          viewBox: viewBox, // New field
-          // relativePath added in ipc handler
-        })
+        results.push({ name: entry.name, path: fullPath })
       }
     }
   } catch (err) {
@@ -226,14 +204,65 @@ app.whenReady().then(() => {
     }
   })
 
-  // Scan SVGs IPC
+  // Scan SVGs IPC — two-pass global scaling (mirrors Python font builder)
   ipcMain.handle('scan:svgs', async (_, dir) => {
     if (!dir) return []
+
     const files = await scanDirectory(dir)
-    // Make paths relative for display if needed, but absolute is fine for file://
-    return files.map(f => ({
-      ...f,
-      relativePath: path.relative(dir, f.path)
+
+    // --- First pass: read every SVG and collect its bounding box ---
+    const fileData = []
+    for (const file of files) {
+      try {
+        const content = await fs.readFile(file.path, 'utf8')
+        const rawD = extractPathData(content)
+        const bbox = rawD ? calculateBoundingBox(parsePathTokens(rawD)) : null
+        fileData.push({ ...file, bbox })
+      } catch (e) {
+        console.warn(`Failed to read ${file.name}:`, e)
+        fileData.push({ ...file, bbox: null })
+      }
+    }
+
+    // --- Compute global 5th/95th percentile crop window ---
+    const validBboxes = fileData.map(f => f.bbox).filter(Boolean)
+    let globalOriginX = 0, globalOriginY = 0, uniformSquare = 1000
+
+    if (validBboxes.length >= 2) {
+      const allMinX = validBboxes.map(b => b.minX).sort((a, b) => a - b)
+      const allMaxX = validBboxes.map(b => b.maxX).sort((a, b) => a - b)
+      const allMinY = validBboxes.map(b => b.minY).sort((a, b) => a - b)
+      const allMaxY = validBboxes.map(b => b.maxY).sort((a, b) => a - b)
+
+      const n = validBboxes.length
+      const lo = Math.max(0, Math.floor(n * 0.05))
+      const hi = Math.min(n - 1, Math.floor(n * 0.95))
+
+      const cropMinX = allMinX[lo]
+      const cropMaxX = allMaxX[hi]
+      const cropMinY = allMinY[lo]
+      const cropMaxY = allMaxY[hi]
+
+      const cropWidth  = cropMaxX - cropMinX
+      const cropHeight = cropMaxY - cropMinY
+      uniformSquare = Math.max(cropWidth, cropHeight)
+
+      // Centre the shorter axis inside the square (same as Python)
+      const cropCenterX = (cropMinX + cropMaxX) / 2
+      const cropCenterY = (cropMinY + cropMaxY) / 2
+      globalOriginX = cropCenterX - uniformSquare / 2
+      globalOriginY = cropCenterY - uniformSquare / 2
+
+      console.log(`[scan] 5%-95% X=[${cropMinX.toFixed(1)}, ${cropMaxX.toFixed(1)}] Y=[${cropMinY.toFixed(1)}, ${cropMaxY.toFixed(1)}]`)
+      console.log(`[scan] uniformSquare=${uniformSquare.toFixed(1)} origin=(${globalOriginX.toFixed(1)}, ${globalOriginY.toFixed(1)})`)
+    }
+
+    // --- Second pass: assign per-file viewBox using global window ---
+    return fileData.map(f => ({
+      name: f.name,
+      path: f.path,
+      relativePath: path.relative(dir, f.path),
+      viewBox: computeViewBox(f.bbox, globalOriginX, globalOriginY, uniformSquare),
     }))
   })
 
